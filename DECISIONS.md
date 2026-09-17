@@ -1,0 +1,290 @@
+# Decisions
+
+Every non-obvious choice, with the alternative that was rejected and why. This
+is the file to revise before a panel defence.
+
+Format: **Decision** / *Alternative rejected* / Reason.
+
+---
+
+## Method: relationship to GRAFT
+
+MATS-STOD reuses the technique of GRAFT (Dutta, Manchanda, Bapat, Gurjar and
+Bhattacharyya, *GRAFT: A Graph-based Flow-aware Agentic Framework for
+Document-level Machine Translation*, EMNLP 2025 Industry Track, arXiv
+2507.03311). The reference implementation is at
+`github.com/himanshu-dutta/graft`.
+
+### D1. GRAFT's discourse agent reproduced faithfully
+
+**Decision.** Segmentation grows a discourse one sentence at a time, asking the
+model a yes/no question per candidate sentence, exactly as GRAFT's
+`DiscourseAgent` does.
+*Alternative rejected.* An LLM that returns merge and split operations over
+rule-based segments, which would cost fewer calls.
+**Reason.** The project reuses a published technique, so the comparison to that
+paper has to be like for like. The operation-based variant is a different
+method and would need its own justification.
+
+### D2. GRAFT's pairwise edge agent reproduced faithfully
+
+**Decision.** Every segment is linked to its successor, and every non-adjacent
+ordered pair is judged by one yes/no call. Cost is quadratic in segments per
+document.
+*Alternative rejected.* One call per segment against a capped candidate list,
+which is linear and returns typed edges with evidence spans.
+**Reason.** Explicit project decision to stay faithful to the published method.
+The cost is contained by the disk cache, `--max-docs`, and a per-document call
+ceiling (`graph.max_pairwise_calls_per_doc`) that aborts rather than
+overspending. The linear variant remains available as future work.
+
+### D3. The model never returns document text
+
+**Decision.** In both the discourse agent and the edge agent the model answers
+yes or no. Segments are assembled from sentence spans computed from the source
+string.
+*Alternative rejected.* Asking the model to return the segmented text, as is
+common in prompt-based chunking.
+**Reason.** Invariant 1 requires that concatenating segments reproduces the
+source apart from inter-segment whitespace. If the model returns text it can
+silently normalise, drop a zero-width joiner, or fix a typo, and the invariant
+becomes unenforceable.
+
+### D4. Discourses do not grow across atomic layout blocks
+
+**Decision.** Headings, list items, table cells and captions each form their own
+group; a discourse never spans two of them.
+*Alternative rejected.* GRAFT's flat treatment, where the document is one
+stream of sentences.
+**Reason.** GRAFT is evaluated on TED talks and novels, which are flat prose.
+Government circulars are not: gluing a heading to the paragraph under it
+destroys the only structure available. The rule has no effect today because
+layout parsing is deferred and every block is a paragraph, but it is in place
+for when it lands.
+
+### D5. GRAFT's memory agent is out of scope
+
+**Decision.** The consistency memory (noun-pronoun map, entity map,
+connectives, phrase map, translation summary, context summary: six extra LLM
+calls per segment) is not implemented. A `ContextEncoder` extension point marks
+where it would go.
+*Alternative rejected.* Porting it now.
+**Reason.** It is outside the declared scope of this build, and it would
+roughly septuple the per-segment cost on a free-trial budget.
+
+### D6. `graft_dependency` added to the edge type vocabulary
+
+**Decision.** Edges from the GRAFT edge agent carry the type
+`graft_dependency` with a null evidence span.
+*Alternative rejected.* Forcing them into one of the six semantic types.
+**Reason.** The agent answers one yes/no question and therefore cannot name a
+relation. Labelling such an edge `coreference` would be an unsupported claim.
+The consequence is that the evidence-span hallucination check does not apply to
+these edges, and the report must say so rather than print a zero.
+
+---
+
+## Evaluation
+
+### D7. chrF++ is primary, BLEU secondary
+
+**Decision.** chrF++ (`word_order=2`) is the headline metric; BLEU is reported
+with `tokenize=none` and its tokeniser stated.
+*Alternative rejected.* BLEU as primary, as in most MT papers.
+**Reason.** sacrebleu ships no word tokeniser for Sinhala or Tamil. Both
+languages are morphologically rich, so whitespace tokens are large and 4-gram
+matches are rare. A character n-gram metric degrades gracefully where word BLEU
+depends on a tokeniser that does not exist.
+
+### D8. BLEU returns 0 below four tokens, and that is left visible
+
+**Decision.** No smoothing or floor is applied; a test documents the behaviour.
+*Alternative rejected.* Switching on sacrebleu smoothing to avoid zeros.
+**Reason.** BLEU needs 4-grams. Silently smoothing would hide the fact that
+BLEU is close to meaningless on short Sinhala and Tamil segments, which is the
+evidence for D7.
+
+### D9. Documents are the scoring unit
+
+**Decision.** Corpus scores treat each document as one segment, matching the
+d-BLEU convention GRAFT reports.
+*Alternative rejected.* Sentence-level scoring after realigning output to
+reference sentences.
+**Reason.** Realignment needs a sentence aligner for Sinhala and Tamil that the
+project does not have; GRAFT's own approach of padding or truncating a sentence
+list to match introduces an artefact that would be hard to defend.
+
+### D10. A fixed split file, never reshuffled
+
+**Decision.** `data/splits.json` is written once and read forever;
+`create_split` refuses to overwrite without an explicit flag.
+*Alternative rejected.* Seeding a shuffle at run time.
+**Reason.** A split that moves makes every earlier number incomparable, and a
+seeded shuffle still moves when the corpus grows.
+
+### D11. Gold files are tagged with their source language
+
+**Decision.** Gold segmentation and gold edges are stored as
+`<doc_id>.<lang>.json`, and a run only loads gold whose language matches its
+source document.
+*Alternative rejected.* Keying gold by document id alone.
+**Reason.** Each pair is evaluated in both directions, so the same `doc_id` is
+a Sinhala source in one run and a Tamil source in the next. Untagged gold was
+silently scored against the wrong side and reported an F1 of zero that looked
+like a segmenter failure. A regression test covers it.
+
+---
+
+## Engineering
+
+### D12. One provider interface; vendor SDKs confined to one module each
+
+**Decision.** Everything depends on `LLMClient`. `llm/gemini.py` is the only
+module importing the Google SDK; `llm/openai_compat.py` the only one importing
+`openai`.
+*Alternative rejected.* Calling the SDK where it is needed.
+**Reason.** Model choice is still an open research question. Confining the SDK
+means swapping models cannot touch pipeline code, and the whole test suite runs
+with no cloud dependency installed.
+
+### D13. Gemini on Vertex AI is the default backend
+
+**Decision.** `llm.backend: vertex`, using a GCP project and Application
+Default Credentials. AI Studio with an API key is kept as a fallback in the
+same module.
+*Alternative rejected.* AI Studio as default, which needs only an API key.
+**Reason.** The available budget is Google Cloud free-trial credit, which
+applies to Vertex. Both backends produce identical cache keys for identical
+prompts, so switching never re-spends tokens.
+
+### D14. Cache keyed on provider, model, messages, schema and parameters
+
+**Decision.** SHA-256 over all five, with parameters sorted.
+*Alternative rejected.* Keying on the prompt text alone.
+**Reason.** A temperature or schema change produces a different answer; a cache
+that ignored them would serve a stale response from a different condition and
+quietly corrupt an experiment.
+
+### D15. Cost is reported twice: billed and cold
+
+**Decision.** The ledger reports what the run actually spent (cache hits free)
+and what it would cost from an empty cache.
+*Alternative rejected.* Reporting only actual spend.
+**Reason.** The write-up needs the cost of the method, not the cost of the
+fifth re-run of it.
+
+### D16. A dry run raises rather than inventing an answer
+
+**Decision.** `--dry-run` serves cached calls and raises `DryRunExhausted` on
+the first uncached one.
+*Alternative rejected.* Returning a placeholder so the run completes.
+**Reason.** A dry run that completes with invented text produces a report that
+looks real. Failing loudly is the only safe behaviour.
+
+### D17. An unparseable yes/no answer counts as a boundary or a missing edge
+
+**Decision.** Parse failures in segmentation and edge inference are counted and
+resolved conservatively, without a retry.
+*Alternative rejected.* Retrying each failure.
+**Reason.** These calls are the volume of the pipeline. A retry policy on them
+could double the cost of the whole pass to recover a handful of decisions. The
+counts are reported so the rate is visible.
+
+### D18. Translation retries once, then falls back to raw text and flags it
+
+**Decision.** A parse failure retries with an added reminder; a second failure
+records the raw text plus `fell_back_to_raw_text`.
+*Alternative rejected.* Raising, losing the document.
+**Reason.** The retry appends text rather than resending the same prompt,
+because an identical prompt would be served from the cache and fail
+identically. Failing the whole document over one segment wastes the tokens
+already spent on it.
+
+### D19. Protected content is flagged, never repaired
+
+**Decision.** A digit or reference-number divergence sets a flag on the record;
+the translation is left as produced.
+*Alternative rejected.* Substituting the source value back in.
+**Reason.** How often the model corrupts a reference number is a result worth
+reporting. A silent repair would erase the measurement and could produce
+ungrammatical output.
+
+### D20. NFC normalisation once at load, and zero-width joiners preserved
+
+**Decision.** `io/text.normalise` runs at load and nowhere else. ZWJ (U+200D)
+is never stripped, and whitespace-only loss is the only loss invariant 1
+tolerates.
+*Alternative rejected.* Normalising defensively wherever text is handled.
+**Reason.** A second normalisation pass would shift character offsets that
+segments and edges already point at. ZWJ is letter-forming in Sinhala: removing
+it from ශ්‍රී produces a different word. A test asserts it survives the whole
+pipeline.
+
+### D21. Artifacts are deterministic; timestamps live elsewhere
+
+**Decision.** `results.json` and `report.md` contain no timestamps; those go in
+`run_meta.json` and `log.jsonl`.
+*Alternative rejected.* Stamping every artifact.
+**Reason.** Two runs on identical input produce byte-identical artifacts, so a
+diff between runs shows only what actually changed. A test asserts this.
+
+### D22. Topological order breaks ties by reading order
+
+**Decision.** Kahn's algorithm with ties resolved by segment order.
+*Alternative rejected.* Any valid topological order.
+**Reason.** A non-deterministic order changes which translations are in context
+for later segments, which changes prompts, which changes cache keys. The run
+would stop being reproducible.
+
+### D23. Baselines use their own naive paragraph splitter
+
+**Decision.** B1 and B2 segment on blank lines via `NaiveParagraphSegmenter`,
+not via `StructuralSegmenter`.
+*Alternative rejected.* Sharing the structural segmenter.
+**Reason.** The baselines are the control. If improving structural segmentation
+also improved the baseline it is measured against, the comparison would move
+under its own feet.
+
+### D24. LangGraph is not used in Phase A or in segmentation
+
+**Decision.** Baselines and segmentation are plain functions. LangGraph enters
+only with the DAG translation pipeline, which has real state and needs
+checkpointing.
+*Alternative rejected.* Building everything as graphs for uniformity.
+**Reason.** A loop over paragraphs has no branching. Wrapping it in a state
+machine would add a dependency and explain nothing.
+
+### D25. Sentence splitting is rule-based with an abbreviation lookahead
+
+**Decision.** A full stop is not a boundary when it sits inside a decimal, a
+clause number, or a known abbreviation, where an abbreviation-internal stop
+only counts if the rest of the abbreviation actually follows.
+*Alternative rejected.* Matching any abbreviation prefix.
+**Reason.** `කි.` opens the abbreviation `කි.මී.` but is also a complete Sinhala
+word. Without the lookahead every occurrence of it swallowed the following
+sentence boundary. A test covers exactly this case.
+
+### D26. Development on Python 3.11 installed by uv
+
+**Decision.** `requires-python = ">=3.11,<3.14"`, with the interpreter provided
+by `uv python install 3.11`.
+*Alternative rejected.* Using the system Python 3.14.
+**Reason.** The build constraint names 3.11 and several dependencies lag new
+releases; `uv` pins it without touching the system installation.
+
+---
+
+## Deferred, with the consequence recorded
+
+### D27. Layout extraction is deferred
+
+**Decision.** Only `PlainTextParser` exists, splitting on blank lines. Every
+block is a paragraph at level 0. Markdown, PDF and DOCX parsers raise
+`NotImplementedError` behind the same interface.
+*Alternative rejected.* Implementing heading, list and table detection now.
+**Reason.** Explicit project decision to defer it.
+**Consequence, which must be stated in any report:** `heading_path` is empty on
+every segment, and the deterministic structural-edge pass yields no edges. The
+discourse graph is therefore built entirely from GRAFT's predecessor and
+pairwise edges. The structural-edge code is implemented and unit-tested against
+hand-built blocks so that it activates unchanged when a layout parser lands.

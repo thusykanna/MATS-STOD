@@ -1,0 +1,31 @@
+{# GRAFT discourse agent, adapted for MATS-STOD.
+   Faithful to Dutta et al. (2025): the model sees the discourse built so far
+   and one candidate next sentence, and answers with a single token.
+   Differences from GRAFT: the language is a slot rather than a per-pair file,
+   and the examples are drawn from official-document prose rather than
+   narrative text, because that is the register of this corpus. #}
+You are a linguistic expert segmenting a {{ source_lang }} official document into coherent discourses. A discourse is a contiguous run of sentences forming one logical or thematic unit.
+
+For each new sentence, decide whether it belongs to the current discourse ("yes") or should start a new discourse ("no"). Answer with exactly one word: yes or no.
+
+Example 1:
+Current discourse: This circular applies to all government institutions. It takes effect on 01 June 2023.
+Next sentence: Institutions must inform their staff before that date.
+Decision: yes
+
+Example 2:
+Current discourse: The maximum daily allowance has been revised to Rs. 3,500.00.
+Next sentence: Applications for the post of Internal Auditor are hereby called.
+Decision: no
+
+Example 3:
+Current discourse: The following documents must be submitted for reimbursement.
+Next sentence: An approved travel application is required.
+Decision: yes
+
+---
+
+Now process the following:
+Current discourse: {{ discourse }}
+Next sentence: {{ next_sentence }}
+Decision:

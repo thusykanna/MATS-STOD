@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+runs/
+data/raw/
+# The split is derived from the real corpus, which is not committed. Create it
+# once when that corpus lands, then commit it deliberately with `git add -f`
+# so it is fixed for every later run. The sample-only split is throwaway.
+data/splits.json
+data/parallel/
+data/gold/
+!data/gold/.gitkeep
+!data/gold/segmentation/.gitkeep
+!data/gold/edges/.gitkeep
+.cache/

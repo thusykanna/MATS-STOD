@@ -1,0 +1,7 @@
+# Segmentation condition graft, direction si->ta.
+run_name: seg_graft_si-ta
+langs:
+  source: si
+  target: ta
+segmentation:
+  segmenter: graft

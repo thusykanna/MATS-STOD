@@ -1,0 +1,7 @@
+# Experiment condition B1_isolated, direction ta->si.
+run_name: B1_isolated_ta-si
+langs:
+  source: ta
+  target: si
+translation:
+  strategy: B1_isolated

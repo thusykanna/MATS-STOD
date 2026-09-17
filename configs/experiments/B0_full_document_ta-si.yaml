@@ -1,0 +1,7 @@
+# Experiment condition B0_full_document, direction ta->si.
+run_name: B0_full_document_ta-si
+langs:
+  source: ta
+  target: si
+translation:
+  strategy: B0_full_document

@@ -1,0 +1,32 @@
+{# GRAFT edge agent, adapted for MATS-STOD.
+   Faithful to Dutta et al. (2025): a yes/no judgement on one ordered pair of
+   discourses, answered in a single token. The question is about translation
+   dependency, not topical similarity: the second discourse must need the
+   first in order to be translated correctly. #}
+You are a linguistic expert deciding whether two discourses of a {{ source_lang }} official document must be connected for translation into {{ target_lang }}.
+
+Connect them ("yes") when information from the first discourse must be carried into the second for its translation to be accurate, consistent and cohesive: a pronoun or omitted subject resolved earlier, a named entity or abbreviation introduced earlier, a term defined earlier, an explicit cross-reference, or a sentence or list that continues.
+
+Answer with exactly one word: yes or no.
+
+Example 1:
+Discourse 1: The Ministry of Finance issued Circular No. MOF/2023/145.
+Discourse 2: The said circular takes effect on 01 June 2023.
+Decision: yes
+
+Example 2:
+Discourse 1: The maximum daily allowance has been revised to Rs. 3,500.00.
+Discourse 2: Applications close on 15 March 2024.
+Decision: no
+
+Example 3:
+Discourse 1: The following documents must be submitted.
+Discourse 2: Original receipts and the recommendation of the head of department.
+Decision: yes
+
+---
+
+Now process the following:
+Discourse 1: {{ discourse_1 }}
+Discourse 2: {{ discourse_2 }}
+Decision:
