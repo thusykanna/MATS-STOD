@@ -97,3 +97,21 @@ def test_ledger_separates_billed_from_cold():
     assert ledger.cost_usd_billed == pytest.approx(1.0)
     assert ledger.cost_usd_cold == pytest.approx(2.0)
     assert ledger.by_purpose()["translation"]["calls"] == 2
+
+
+def test_unpriced_model_is_reported_not_treated_as_free():
+    """A model missing from the price table must not print $0.00 silently."""
+    ledger = CostLedger(prices_usd_per_mtok={"known": {"input": 1.0, "output": 1.0}})
+    ledger.record("translation", "brand-new-model", 1_000_000, 0, cached=False)
+    summary = ledger.summary()
+    assert summary["models_without_prices"] == ["brand-new-model"]
+    assert summary["cost_is_complete"] is False
+
+
+def test_fully_priced_run_is_marked_complete():
+    ledger = CostLedger(prices_usd_per_mtok={"known": {"input": 1.0, "output": 1.0}})
+    ledger.record("translation", "known", 1_000_000, 0, cached=False)
+    summary = ledger.summary()
+    assert summary["models_without_prices"] == []
+    assert summary["cost_is_complete"] is True
+    assert summary["cost_usd_billed"] == pytest.approx(1.0)

@@ -169,6 +169,13 @@ def render_report(results: dict[str, Any], settings: Settings) -> str:
                 ],
             )
         )
+        unpriced = cost.get("models_without_prices") or []
+        if unpriced:
+            lines.append(
+                "\n> **The cost above is incomplete.** No price is configured for "
+                f"{', '.join(unpriced)}, so those calls counted as zero. Add them under "
+                "`llm.prices_usd_per_mtok` in the config. Token counts are unaffected.\n"
+            )
         by_purpose = cost.get("by_purpose") or {}
         if by_purpose:
             lines.append("\nBy purpose:\n")

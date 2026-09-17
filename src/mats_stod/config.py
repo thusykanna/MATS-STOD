@@ -47,7 +47,7 @@ class LangSettings(BaseModel):
 class LLMSettings(BaseModel):
     provider: str = "gemini"
     backend: str = "vertex"  # vertex | ai_studio
-    model: str = "gemini-2.0-flash-001"
+    model: str = "gemini-2.5-flash"
     temperature: float = 0.0
     max_output_tokens: int = 4096
     top_p: float | None = None
@@ -60,11 +60,12 @@ class LLMSettings(BaseModel):
     project: str | None = None
     location: str = "us-central1"
     #: USD per million tokens. Used for the cost ledger only; wrong numbers
-    #: make the ledger wrong, never the translation.
+    #: make the ledger wrong, never the translation. A model absent from this
+    #: table is reported as unpriced, not as free.
     prices_usd_per_mtok: dict[str, dict[str, float]] = Field(
         default_factory=lambda: {
-            "gemini-2.0-flash-001": {"input": 0.10, "output": 0.40},
             "gemini-2.5-flash": {"input": 0.30, "output": 2.50},
+            "gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
             "fake": {"input": 0.0, "output": 0.0},
         }
     )

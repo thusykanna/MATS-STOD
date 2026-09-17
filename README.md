@@ -37,7 +37,7 @@ network; a fixture blocks sockets for the whole suite.
 ## Quick start
 
 ```bash
-uv run pytest                                   # 162 tests, ~1.5s, offline
+uv run pytest                                   # 165 tests, ~1.5s, offline
 uv run mats-stod make-split --data data/samples # throwaway split over the samples
 uv run mats-stod compare --strategies B0,B1,B2 \
     --provider fake --data data/samples --portion all
@@ -94,6 +94,17 @@ uv run mats-stod check-llm --send   # one tiny real call, a few tokens
 
 `check-llm` prints what is set, what is missing, and the exact error if a
 client cannot be built. It never prints a key.
+
+If gcloud warns that your active project does not match the quota project in
+your Application Default Credentials, set it once:
+
+```bash
+gcloud auth application-default set-quota-project YOUR_PROJECT_ID
+```
+
+Model names change. `gcloud` will happily list models your project cannot
+call, so confirm with `check-llm --send` rather than trusting a listing. The
+default is `gemini-2.5-flash`, verified working on Vertex in `us-central1`.
 
 Then run for real, smallest first:
 
@@ -212,6 +223,10 @@ in Sinhala and dropping it from ශ්‍රී produces a different word.
 - **No real corpus yet.** `data/samples/` holds three hand-written synthetic
   documents, committed so tests and demos run. They are not government text and
   must never be reported as results.
+- **Prices in the config are not authoritative.** The cost ledger can only be
+  as right as `llm.prices_usd_per_mtok`. Verify those against Google's current
+  pricing before quoting a figure. A model absent from the table is reported as
+  unpriced rather than as free, and the report says the total is incomplete.
 - **No learned metric.** A `LearnedMetric` protocol exists; COMET is not
   installed, because it needs a model this machine cannot host and is not
   validated for Sinhala–Tamil.

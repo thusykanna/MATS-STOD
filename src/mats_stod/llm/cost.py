@@ -44,10 +44,28 @@ class CostLedger:
     # -- aggregates -------------------------------------------------------
 
     def _cost(self, model: str, tokens_in: int, tokens_out: int) -> float:
-        price = self.prices_usd_per_mtok.get(model, {"input": 0.0, "output": 0.0})
+        """Cost of one call, or 0.0 when the model has no price entry.
+
+        A missing price is reported separately by `models_without_prices`.
+        Treating it as free here and saying nothing would put "$0.00" in a
+        report for a run that really did spend money.
+        """
+        price = self.prices_usd_per_mtok.get(model)
+        if price is None:
+            return 0.0
         return (
             tokens_in / 1_000_000 * price.get("input", 0.0)
             + tokens_out / 1_000_000 * price.get("output", 0.0)
+        )
+
+    @property
+    def models_without_prices(self) -> list[str]:
+        """Models that were called but are not in the price table.
+
+        Any cost figure in this run is a lower bound while this is non-empty.
+        """
+        return sorted(
+            {c.model for c in self.calls if c.model not in self.prices_usd_per_mtok}
         )
 
     @property
@@ -114,6 +132,8 @@ class CostLedger:
             "tokens_out_billed": self.tokens_out_billed,
             "cost_usd_billed": round(self.cost_usd_billed, 6),
             "cost_usd_cold": round(self.cost_usd_cold, 6),
+            "models_without_prices": self.models_without_prices,
+            "cost_is_complete": not self.models_without_prices,
             "latency_s_total": round(self.latency_s_total, 3),
             "by_purpose": self.by_purpose(),
         }
