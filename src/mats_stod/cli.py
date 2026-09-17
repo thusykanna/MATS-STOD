@@ -390,7 +390,30 @@ def check_llm(
 
 
 def main() -> None:  # pragma: no cover
-    app()
+    """Entry point that reports expected conditions without a traceback.
+
+    A dry run finding uncached work, or a missing credential, is a normal
+    outcome of a guard doing its job. Printing a stack trace for it makes a
+    working safeguard look like a crash.
+    """
+    from .llm.base import LLMError
+    from .llm.client import DryRunExhausted
+
+    # SystemExit rather than typer.Exit: this is outside the Typer callback,
+    # where typer.Exit is not translated into an exit code.
+    try:
+        app()
+    except DryRunExhausted as exc:
+        typer.echo(f"\nDry run stopped: {exc}", err=True)
+        typer.echo(
+            "Nothing was sent and nothing was charged. Re-run without --dry-run "
+            "to make these calls.",
+            err=True,
+        )
+        raise SystemExit(2) from None
+    except LLMError as exc:
+        typer.echo(f"\nLLM call failed: {exc}", err=True)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":  # pragma: no cover

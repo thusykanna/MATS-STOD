@@ -53,6 +53,10 @@ class LLMSettings(BaseModel):
     top_p: float | None = None
     timeout_s: float = 120.0
     max_retries: int = 3
+    #: Gemini 2.5+ reasons before answering and charges those tokens against
+    #: max_output_tokens. None leaves the model's default; 0 disables it.
+    #: Call sites may override per call.
+    thinking_budget: int | None = None
     cache_path: str = ".cache/llm_cache.sqlite"
     use_cache: bool = True
     # Vertex specifics; values normally come from the environment, these are
@@ -121,6 +125,14 @@ class SegmentationSettings(BaseModel):
     sentences: SentenceSplitSettings = Field(default_factory=SentenceSplitSettings)
     prompt_version: str = "discourse_v1"
     boundary_tolerance_chars: int = 2
+    #: Output cap for one yes/no decision. Small, but not so small that a
+    #: model which prefixes its answer gets truncated.
+    decision_max_tokens: int = 16
+    #: 0 disables reasoning for the yes/no call. Without this a thinking model
+    #: spends the whole output budget reasoning and returns nothing, which
+    #: would silently turn every decision into a segment boundary. Raise it to
+    #: study whether reasoning improves boundary quality.
+    decision_thinking_budget: int | None = 0
 
 
 class GraphSettings(BaseModel):

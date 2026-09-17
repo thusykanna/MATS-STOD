@@ -21,7 +21,9 @@ openai = ["openai>=1.30"]
 graph = ["langgraph>=0.2", "langgraph-checkpoint-sqlite>=2.0"]
 
 [project.scripts]
-mats-stod = "mats_stod.cli:app"
+# main() wraps app() so expected conditions, such as a dry run finding
+# uncached work, print a message rather than a stack trace.
+mats-stod = "mats_stod.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.5"]
