@@ -124,13 +124,13 @@ Budget controls, available on every command:
 | `annotate-template DOC` | Write a hand-editable gold annotation file |
 | `annotate-import FILE` | Convert a filled-in template into gold JSON |
 | `make-split` | Create the fixed dev/test split, once |
+| `show-config` | Print the fully resolved configuration |
+| `check-llm` | Diagnose credentials; `--send` tests one real call |
 
 `data/splits.json` is gitignored because it is derived from the corpus, which
 is not committed. When the real corpus lands, create the split once and commit
 it deliberately (`git add -f data/splits.json`) so every later run uses the
 same documents. `make-split` refuses to overwrite an existing split.
-| `show-config` | Print the fully resolved configuration |
-| `check-llm` | Diagnose credentials; `--send` tests one real call |
 
 Direction is set with `--source` and `--target`, or by an experiment overlay:
 
