@@ -215,3 +215,34 @@ def test_comparison_table_names_the_fake_provider(workspace, tmp_path):
     table = (tmp_path / "runs" / "cmp-model" / "comparison.md").read_text()
     assert "Model: fake" in table
     assert "gemini" not in table
+
+
+def test_check_llm_reports_missing_credentials(workspace, monkeypatch):
+    """The diagnosis must be actionable and must not need a credential."""
+    for name in ["GOOGLE_CLOUD_PROJECT", "GEMINI_API_KEY", "GOOGLE_API_KEY"]:
+        monkeypatch.delenv(name, raising=False)
+    import yaml
+
+    cfg = yaml.safe_load(workspace.read_text())
+    cfg["llm"]["provider"] = "gemini"
+    cfg["llm"]["backend"] = "vertex"
+    cfg["llm"]["project"] = None
+    workspace.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+
+    result = runner.invoke(app, ["check-llm", "--config", str(workspace)])
+    assert result.exit_code == 1
+    assert "GOOGLE_CLOUD_PROJECT" in result.output
+    assert "gcloud auth application-default login" in result.output
+
+
+def test_check_llm_succeeds_with_the_fake_provider(workspace):
+    out = run("check-llm", "--config", str(workspace)).output
+    assert "Client created: fake / fake" in out
+    assert "No call was made" in out
+
+
+def test_check_llm_never_prints_a_key(workspace, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "secret-key-value-here")
+    out = run("check-llm", "--config", str(workspace)).output
+    assert "secret-key-value-here" not in out
+    assert "set (21 chars)" in out

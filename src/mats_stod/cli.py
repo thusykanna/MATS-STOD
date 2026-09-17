@@ -16,6 +16,7 @@ import typer
 from .config import Settings, load_settings
 from .evaluation.metrics import score_corpus, score_document
 from .evaluation.report import write_report
+from .io.env import credential_status, load_env_file
 from .io.parallel import load_parallel, load_text_dir
 from .io.runs import RunDir
 from .io.split import create_split, select
@@ -25,6 +26,10 @@ app = typer.Typer(
     add_completion=False,
     help="MATS-STOD: Sinhala-Tamil official document translation research pipeline.",
 )
+
+# Credentials come from the environment; a gitignored .env at the repository
+# root is loaded once here so they need not be exported in every terminal.
+load_env_file()
 
 
 def _settings(
@@ -328,6 +333,60 @@ def show_config(
 ) -> None:
     """Print the fully resolved configuration."""
     typer.echo(_settings(config, experiment, source, target).to_yaml())
+
+
+@app.command("check-llm")
+def check_llm(
+    config: str | None = typer.Option(None, "--config"),
+    send: bool = typer.Option(
+        False, "--send", help="Actually send one tiny test call (costs a few tokens)."
+    ),
+) -> None:
+    """Diagnose LLM credentials without spending tokens.
+
+    Run this before any real translation: it reports what is configured, what
+    the environment provides, and, with --send, whether one minimal call
+    actually succeeds.
+    """
+    settings = _settings(config, None, None, None)
+    typer.echo(f"provider : {settings.llm.provider}")
+    typer.echo(f"backend  : {settings.llm.backend}")
+    typer.echo(f"model    : {settings.llm.model}")
+    typer.echo("")
+    typer.echo("Environment:")
+    for name, state in credential_status().items():
+        typer.echo(f"  {name:<32} {state}")
+    typer.echo("")
+
+    try:
+        from .llm.factory import build_provider
+
+        provider = build_provider(settings)
+    except Exception as exc:  # noqa: BLE001 - the whole point is to report it
+        typer.echo(f"Client could not be created: {exc}")
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Client created: {provider.provider} / {provider.model}")
+
+    if not send:
+        typer.echo("")
+        typer.echo("No call was made. Re-run with --send to test a real call.")
+        return
+
+    from .llm.base import Message
+
+    try:
+        response = provider.complete(
+            [Message("user", "Reply with the single word: ok")],
+            max_output_tokens=8,
+            temperature=0.0,
+        )
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Call failed: {exc}")
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"Call succeeded. Reply: {response.text[:60]!r} "
+        f"(tokens in {response.tokens_in}, out {response.tokens_out})"
+    )
 
 
 def main() -> None:  # pragma: no cover

@@ -37,7 +37,7 @@ network; a fixture blocks sockets for the whole suite.
 ## Quick start
 
 ```bash
-uv run pytest                                   # 148 tests, ~1s, offline
+uv run pytest                                   # 162 tests, ~1.5s, offline
 uv run mats-stod make-split --data data/samples # throwaway split over the samples
 uv run mats-stod compare --strategies B0,B1,B2 \
     --provider fake --data data/samples --portion all
@@ -48,18 +48,62 @@ Output lands in `runs/<run_id>/`: `report.md`, `results.json`,
 
 ## Using a real model
 
-Gemini on Vertex AI is the default backend.
+Gemini on Vertex AI is the default backend. Five steps, once.
+
+**1. Install the SDK and the Google Cloud CLI.**
+
+```bash
+uv sync --extra gemini
+brew install --cask google-cloud-sdk
+```
+
+**2. Log in.** This opens a browser and is the only interactive step.
 
 ```bash
 gcloud auth application-default login
-export GOOGLE_CLOUD_PROJECT=your-project-id
-export GOOGLE_CLOUD_LOCATION=us-central1
-uv run mats-stod translate --strategy B2 --max-docs 2
+```
+
+**3. Pick a project and enable the Vertex AI API.** Create a project at
+[console.cloud.google.com](https://console.cloud.google.com) if you have none;
+the project id is not the display name.
+
+```bash
+gcloud projects list                       # find your project id
+gcloud config set project YOUR_PROJECT_ID
+gcloud services enable aiplatform.googleapis.com --project YOUR_PROJECT_ID
+```
+
+Vertex AI needs billing enabled on the project. Free-trial credits count as
+billing, so a trial project works.
+
+**4. Record the project for this repository.**
+
+```bash
+cp .env.example .env      # then edit GOOGLE_CLOUD_PROJECT
+```
+
+`.env` is gitignored and is read automatically. Anything exported in your
+shell overrides it.
+
+**5. Verify before spending anything.**
+
+```bash
+uv run mats-stod check-llm          # configuration and credentials only
+uv run mats-stod check-llm --send   # one tiny real call, a few tokens
+```
+
+`check-llm` prints what is set, what is missing, and the exact error if a
+client cannot be built. It never prints a key.
+
+Then run for real, smallest first:
+
+```bash
+uv run mats-stod translate --strategy B2 --max-docs 1
 ```
 
 To use an AI Studio key instead, set `llm.backend: ai_studio` in the config and
-export `GEMINI_API_KEY`. Both backends produce identical cache keys, so
-switching never re-spends tokens.
+put `GEMINI_API_KEY` in `.env`. No gcloud or project is needed. Both backends
+produce identical cache keys, so switching never re-spends tokens.
 
 Budget controls, available on every command:
 
@@ -86,6 +130,7 @@ is not committed. When the real corpus lands, create the split once and commit
 it deliberately (`git add -f data/splits.json`) so every later run uses the
 same documents. `make-split` refuses to overwrite an existing split.
 | `show-config` | Print the fully resolved configuration |
+| `check-llm` | Diagnose credentials; `--send` tests one real call |
 
 Direction is set with `--source` and `--target`, or by an experiment overlay:
 
