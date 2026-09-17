@@ -24,20 +24,34 @@ Both translation directions are supported everywhere: `si→ta` and `ta→si`.
 
 ## Install
 
+The only prerequisite is [uv](https://docs.astral.sh/uv/). It fetches Python
+3.11 itself (pinned in `.python-version`) and creates the virtual environment,
+so nothing else needs installing first.
+
 ```bash
-uv python install 3.11
-uv venv --python 3.11
-uv sync --dev                 # core + test tooling
-uv sync --extra gemini        # add when you want to call a real model
+# macOS / Linux, if you do not already have uv:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+git clone <this-repo> && cd MATS-STOD
+uv sync --dev          # Python, dependencies and test tooling
+uv run pytest          # 166 pass, 1 skipped, offline, ~3s
 ```
 
-Everything below runs offline with `--provider fake`. No test touches the
-network; a fixture blocks sockets for the whole suite.
+That is the whole setup for everything except calling a real model. No Google
+account, no API key, no network: the suite blocks sockets, and every command
+runs against a scripted fake model with `--provider fake`.
+
+Add the cloud SDK only when you want real translations:
+
+```bash
+uv sync --extra gemini
+```
+
+Then follow [Using a real model](#using-a-real-model) below.
 
 ## Quick start
 
 ```bash
-uv run pytest                                   # 162 tests, ~1.5s, offline
 uv run mats-stod make-split --data data/samples # throwaway split over the samples
 uv run mats-stod compare --strategies B0,B1,B2 \
     --provider fake --data data/samples --portion all
@@ -48,52 +62,95 @@ Output lands in `runs/<run_id>/`: `report.md`, `results.json`,
 
 ## Using a real model
 
-Gemini on Vertex AI is the default backend. Five steps, once.
+Everything above works without this. Do it only when you want real
+translations rather than the offline fake.
 
-**1. Install the SDK and the Google Cloud CLI.**
+Two backends are available and both call the same Gemini models. **AI Studio**
+needs an API key and nothing else. **Vertex AI** is the default and needs a
+Google Cloud project; use it if your budget is Google Cloud trial credit.
+
+### Option A: AI Studio, about two minutes
 
 ```bash
 uv sync --extra gemini
-brew install --cask google-cloud-sdk
 ```
 
-**2. Log in.** This opens a browser and is the only interactive step.
+Get a key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey),
+then:
+
+```bash
+cp .env.example .env        # put the key in GEMINI_API_KEY
+```
+
+Set `llm.backend: ai_studio` in `configs/default.yaml`, then jump to
+[Verify](#verify-before-spending-anything).
+
+### Option B: Vertex AI
+
+You need a Google account, a Google Cloud project, and **billing enabled** on
+that project. Free-trial credits count as billing, so a trial project works,
+but a project with no billing account will be refused.
+
+**1. Install the Python SDK and the Google Cloud CLI.**
+
+```bash
+uv sync --extra gemini
+brew install --cask google-cloud-sdk    # macOS
+```
+
+On Linux or Windows, follow
+[cloud.google.com/sdk/docs/install](https://cloud.google.com/sdk/docs/install).
+Confirm with `gcloud --version`.
+
+**2. Log in.** This opens a browser and is the only interactive step. It writes
+Application Default Credentials, which is what the Python SDK reads. Logging in
+with `gcloud auth login` alone is not enough.
 
 ```bash
 gcloud auth application-default login
 ```
 
-**3. Pick a project and enable the Vertex AI API.** Create a project at
-[console.cloud.google.com](https://console.cloud.google.com) if you have none;
-the project id is not the display name.
+**3. Choose the project.** Create one at
+[console.cloud.google.com](https://console.cloud.google.com) if you have none.
+The project **id** is what you need, not the display name.
 
 ```bash
-gcloud projects list                       # find your project id
+gcloud projects list                        # the PROJECT_ID column
 gcloud config set project YOUR_PROJECT_ID
+```
+
+**4. Enable the Vertex AI API and set the quota project.** The second command
+is not optional: without it gcloud warns that your active project does not
+match the quota project, and client libraries have no project to bill against.
+
+```bash
 gcloud services enable aiplatform.googleapis.com --project YOUR_PROJECT_ID
+gcloud auth application-default set-quota-project YOUR_PROJECT_ID
 ```
 
-Vertex AI needs billing enabled on the project. Free-trial credits count as
-billing, so a trial project works.
-
-**4. Record the project for this repository.**
+**5. Record the project for this repository.**
 
 ```bash
-cp .env.example .env      # then edit GOOGLE_CLOUD_PROJECT
+cp .env.example .env        # set GOOGLE_CLOUD_PROJECT to your project id
 ```
 
-`.env` is gitignored and is read automatically. Anything exported in your
-shell overrides it.
+`.env` is gitignored and read automatically, so the id never gets committed
+and you never need to export it again. Anything exported in your shell still
+wins over the file.
 
-**5. Verify before spending anything.**
+If the project belongs to an organisation rather than to you, your account also
+needs the **Vertex AI User** role (`roles/aiplatform.user`) on it.
+
+### Verify before spending anything
 
 ```bash
-uv run mats-stod check-llm          # configuration and credentials only
-uv run mats-stod check-llm --send   # one tiny real call, a few tokens
+uv run mats-stod check-llm          # configuration only, no call, no cost
+uv run mats-stod check-llm --send   # one real call, a handful of tokens
 ```
 
-`check-llm` prints what is set, what is missing, and the exact error if a
-client cannot be built. It never prints a key.
+`check-llm` lists what is set and what is missing, and never prints a key: a
+credential shows only as "set (21 chars)", so its output is safe to paste into
+a message or a screenshot.
 
 Then run for real, smallest first:
 
@@ -101,9 +158,30 @@ Then run for real, smallest first:
 uv run mats-stod translate --strategy B2 --max-docs 1
 ```
 
-To use an AI Studio key instead, set `llm.backend: ai_studio` in the config and
-put `GEMINI_API_KEY` in `.env`. No gcloud or project is needed. Both backends
-produce identical cache keys, so switching never re-spends tokens.
+### When it goes wrong
+
+Failures that cannot be fixed by retrying, such as a bad project or a retired
+model, fail immediately and print the fix rather than retrying three times.
+Quota errors and server blips still back off and retry.
+
+| What you see | What it means | Fix |
+|---|---|---|
+| `google-genai is not installed` | Optional extra missing | `uv sync --extra gemini` |
+| `could not automatically determine credentials` | Never logged in | `gcloud auth application-default login` |
+| `Vertex backend needs a project` | No project set | Put `GOOGLE_CLOUD_PROJECT` in `.env` |
+| `403 SERVICE_DISABLED` | API not enabled | `gcloud services enable aiplatform.googleapis.com --project ID` |
+| `403 PERMISSION_DENIED` | Wrong project id, no billing, or missing role | Check the id, enable billing, grant Vertex AI User |
+| `404 ... was not found or your project does not have access` | Model retired or unavailable in this region | Change `llm.model` or `llm.location` |
+| `429 RESOURCE_EXHAUSTED` | Quota exceeded | Wait, or lower `--max-docs` |
+| Quota project warning from gcloud | ADC has no quota project | `gcloud auth application-default set-quota-project ID` |
+
+**Model names change and a listed model is not necessarily a callable one.**
+`gcloud` lists models this project cannot use; several return 404 when called.
+Trust `check-llm --send`, not a listing. The default `gemini-2.5-flash` was
+verified working on Vertex in `us-central1`.
+
+Switching between the two backends never re-spends tokens: both produce
+identical cache keys for identical prompts.
 
 Budget controls, available on every command:
 
@@ -212,6 +290,10 @@ in Sinhala and dropping it from ශ්‍රී produces a different word.
 - **No real corpus yet.** `data/samples/` holds three hand-written synthetic
   documents, committed so tests and demos run. They are not government text and
   must never be reported as results.
+- **Prices in the config are not authoritative.** The cost ledger can only be
+  as right as `llm.prices_usd_per_mtok`. Verify those against Google's current
+  pricing before quoting a figure. A model absent from the table is reported as
+  unpriced rather than as free, and the report says the total is incomplete.
 - **No learned metric.** A `LearnedMetric` protocol exists; COMET is not
   installed, because it needs a model this machine cannot host and is not
   validated for Sinhala–Tamil.

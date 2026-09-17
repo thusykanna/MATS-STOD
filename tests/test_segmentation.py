@@ -176,3 +176,29 @@ def test_chunking_respects_the_character_budget(settings, sample_doc):
     result = chunk_document(sample_doc, max_chars=150)
     assert len(result.segments) > 1
     check_invariants(sample_doc, result.segments, settings)
+
+
+# -- thinking budget ------------------------------------------------------
+
+
+def test_graft_disables_reasoning_for_the_yes_no_call(settings, sample_doc):
+    """A thinking model spends the whole output budget reasoning.
+
+    Without thinking_budget=0 the model returns nothing for a 4-token cap, and
+    every unparseable answer becomes a boundary, so the segmenter silently
+    degenerates to one segment per sentence against a real model.
+    """
+    result, fake = graft(settings, "yes", sample_doc)
+    assert fake.calls, "expected at least one decision call"
+    for call in fake.calls:
+        assert call["params"]["thinking_budget"] == 0
+        assert call["params"]["max_output_tokens"] >= 8
+
+
+def test_decision_budget_is_configurable_for_ablation(settings, sample_doc):
+    """Turning reasoning back on must be a config change, not a code change."""
+    settings.segmentation.decision_thinking_budget = 128
+    settings.segmentation.decision_max_tokens = 256
+    result, fake = graft(settings, "yes", sample_doc)
+    assert fake.calls[0]["params"]["thinking_budget"] == 128
+    assert fake.calls[0]["params"]["max_output_tokens"] == 256

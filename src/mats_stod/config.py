@@ -47,12 +47,16 @@ class LangSettings(BaseModel):
 class LLMSettings(BaseModel):
     provider: str = "gemini"
     backend: str = "vertex"  # vertex | ai_studio
-    model: str = "gemini-2.0-flash-001"
+    model: str = "gemini-2.5-flash"
     temperature: float = 0.0
     max_output_tokens: int = 4096
     top_p: float | None = None
     timeout_s: float = 120.0
     max_retries: int = 3
+    #: Gemini 2.5+ reasons before answering and charges those tokens against
+    #: max_output_tokens. None leaves the model's default; 0 disables it.
+    #: Call sites may override per call.
+    thinking_budget: int | None = None
     cache_path: str = ".cache/llm_cache.sqlite"
     use_cache: bool = True
     # Vertex specifics; values normally come from the environment, these are
@@ -60,11 +64,12 @@ class LLMSettings(BaseModel):
     project: str | None = None
     location: str = "us-central1"
     #: USD per million tokens. Used for the cost ledger only; wrong numbers
-    #: make the ledger wrong, never the translation.
+    #: make the ledger wrong, never the translation. A model absent from this
+    #: table is reported as unpriced, not as free.
     prices_usd_per_mtok: dict[str, dict[str, float]] = Field(
         default_factory=lambda: {
-            "gemini-2.0-flash-001": {"input": 0.10, "output": 0.40},
             "gemini-2.5-flash": {"input": 0.30, "output": 2.50},
+            "gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
             "fake": {"input": 0.0, "output": 0.0},
         }
     )
@@ -120,6 +125,14 @@ class SegmentationSettings(BaseModel):
     sentences: SentenceSplitSettings = Field(default_factory=SentenceSplitSettings)
     prompt_version: str = "discourse_v1"
     boundary_tolerance_chars: int = 2
+    #: Output cap for one yes/no decision. Small, but not so small that a
+    #: model which prefixes its answer gets truncated.
+    decision_max_tokens: int = 16
+    #: 0 disables reasoning for the yes/no call. Without this a thinking model
+    #: spends the whole output budget reasoning and returns nothing, which
+    #: would silently turn every decision into a segment boundary. Raise it to
+    #: study whether reasoning improves boundary quality.
+    decision_thinking_budget: int | None = 0
 
 
 class GraphSettings(BaseModel):

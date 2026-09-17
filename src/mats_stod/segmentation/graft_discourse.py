@@ -136,8 +136,13 @@ class GraftDiscourseSegmenter(Segmenter):
         response = self.llm.complete(
             [Message("user", prompt)],
             purpose="segmentation",
-            # GRAFT uses a single greedy token; anything longer is wasted spend.
-            max_output_tokens=4,
+            # GRAFT wants one token. The cap is a little larger so a model that
+            # answers "Yes." rather than "yes" is not truncated, and reasoning
+            # is disabled: a thinking model charges its reasoning against this
+            # cap and would return nothing at all, turning every decision into
+            # a boundary.
+            max_output_tokens=self.seg_settings.decision_max_tokens,
+            thinking_budget=self.seg_settings.decision_thinking_budget,
             temperature=0.0,
         )
         try:

@@ -173,7 +173,18 @@ and what it would cost from an empty cache.
 **Reason.** The write-up needs the cost of the method, not the cost of the
 fifth re-run of it.
 
-### D16. A dry run raises rather than inventing an answer
+### D16. An unpriced model is reported, not counted as free
+
+**Decision.** A model absent from `llm.prices_usd_per_mtok` contributes zero to
+the cost total, and the run records which models those were; the report prints
+a warning that the total is incomplete.
+*Alternative rejected.* Defaulting an unknown model's price to zero silently,
+which is what the code did at first.
+**Reason.** Model names change faster than a config file does. A run on a new
+model printed "USD spent 0.0" while really spending money, which is a false
+statement in a report that will be defended.
+
+### D17. A dry run raises rather than inventing an answer
 
 **Decision.** `--dry-run` serves cached calls and raises `DryRunExhausted` on
 the first uncached one.
@@ -181,7 +192,7 @@ the first uncached one.
 **Reason.** A dry run that completes with invented text produces a report that
 looks real. Failing loudly is the only safe behaviour.
 
-### D17. An unparseable yes/no answer counts as a boundary or a missing edge
+### D18. An unparseable yes/no answer counts as a boundary or a missing edge
 
 **Decision.** Parse failures in segmentation and edge inference are counted and
 resolved conservatively, without a retry.
@@ -190,7 +201,7 @@ resolved conservatively, without a retry.
 could double the cost of the whole pass to recover a handful of decisions. The
 counts are reported so the rate is visible.
 
-### D18. Translation retries once, then falls back to raw text and flags it
+### D19. Translation retries once, then falls back to raw text and flags it
 
 **Decision.** A parse failure retries with an added reminder; a second failure
 records the raw text plus `fell_back_to_raw_text`.
@@ -200,7 +211,7 @@ because an identical prompt would be served from the cache and fail
 identically. Failing the whole document over one segment wastes the tokens
 already spent on it.
 
-### D19. Protected content is flagged, never repaired
+### D20. Protected content is flagged, never repaired
 
 **Decision.** A digit or reference-number divergence sets a flag on the record;
 the translation is left as produced.
@@ -209,7 +220,7 @@ the translation is left as produced.
 reporting. A silent repair would erase the measurement and could produce
 ungrammatical output.
 
-### D20. NFC normalisation once at load, and zero-width joiners preserved
+### D21. NFC normalisation once at load, and zero-width joiners preserved
 
 **Decision.** `io/text.normalise` runs at load and nowhere else. ZWJ (U+200D)
 is never stripped, and whitespace-only loss is the only loss invariant 1
@@ -220,7 +231,7 @@ segments and edges already point at. ZWJ is letter-forming in Sinhala: removing
 it from ශ්‍රී produces a different word. A test asserts it survives the whole
 pipeline.
 
-### D21. Artifacts are deterministic; timestamps live elsewhere
+### D22. Artifacts are deterministic; timestamps live elsewhere
 
 **Decision.** `results.json` and `report.md` contain no timestamps; those go in
 `run_meta.json` and `log.jsonl`.
@@ -228,7 +239,7 @@ pipeline.
 **Reason.** Two runs on identical input produce byte-identical artifacts, so a
 diff between runs shows only what actually changed. A test asserts this.
 
-### D22. Topological order breaks ties by reading order
+### D23. Topological order breaks ties by reading order
 
 **Decision.** Kahn's algorithm with ties resolved by segment order.
 *Alternative rejected.* Any valid topological order.
@@ -236,7 +247,7 @@ diff between runs shows only what actually changed. A test asserts this.
 for later segments, which changes prompts, which changes cache keys. The run
 would stop being reproducible.
 
-### D23. Baselines use their own naive paragraph splitter
+### D24. Baselines use their own naive paragraph splitter
 
 **Decision.** B1 and B2 segment on blank lines via `NaiveParagraphSegmenter`,
 not via `StructuralSegmenter`.
@@ -245,7 +256,7 @@ not via `StructuralSegmenter`.
 also improved the baseline it is measured against, the comparison would move
 under its own feet.
 
-### D24. LangGraph is not used in Phase A or in segmentation
+### D25. LangGraph is not used in Phase A or in segmentation
 
 **Decision.** Baselines and segmentation are plain functions. LangGraph enters
 only with the DAG translation pipeline, which has real state and needs
@@ -254,7 +265,7 @@ checkpointing.
 **Reason.** A loop over paragraphs has no branching. Wrapping it in a state
 machine would add a dependency and explain nothing.
 
-### D25. Sentence splitting is rule-based with an abbreviation lookahead
+### D26. Sentence splitting is rule-based with an abbreviation lookahead
 
 **Decision.** A full stop is not a boundary when it sits inside a decimal, a
 clause number, or a known abbreviation, where an abbreviation-internal stop
@@ -264,7 +275,7 @@ only counts if the rest of the abbreviation actually follows.
 word. Without the lookahead every occurrence of it swallowed the following
 sentence boundary. A test covers exactly this case.
 
-### D26. Development on Python 3.11 installed by uv
+### D27. Development on Python 3.11 installed by uv
 
 **Decision.** `requires-python = ">=3.11,<3.14"`, with the interpreter provided
 by `uv python install 3.11`.
@@ -276,7 +287,7 @@ releases; `uv` pins it without touching the system installation.
 
 ## Deferred, with the consequence recorded
 
-### D27. Layout extraction is deferred
+### D28. Layout extraction is deferred
 
 **Decision.** Only `PlainTextParser` exists, splitting on blank lines. Every
 block is a paragraph at level 0. Markdown, PDF and DOCX parsers raise

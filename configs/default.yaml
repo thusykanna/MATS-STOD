@@ -14,18 +14,22 @@ langs:
 llm:
   provider: gemini          # gemini | openai_compat | fake
   backend: vertex           # vertex | ai_studio
-  model: gemini-2.0-flash-001
+  model: gemini-2.5-flash
   temperature: 0.0
   max_output_tokens: 4096
   timeout_s: 120.0
   max_retries: 3
+  thinking_budget: null      # null = model default, 0 = no reasoning
   cache_path: .cache/llm_cache.sqlite
   use_cache: true
   project: null             # falls back to $GOOGLE_CLOUD_PROJECT
   location: us-central1     # falls back to $GOOGLE_CLOUD_LOCATION
+  # USD per million tokens. VERIFY THESE against Google's current pricing page
+  # before quoting any cost figure: they are the only source the ledger has,
+  # and a model missing here is reported as unpriced rather than as free.
   prices_usd_per_mtok:
-    gemini-2.0-flash-001: {input: 0.10, output: 0.40}
     gemini-2.5-flash: {input: 0.30, output: 2.50}
+    gemini-2.5-flash-lite: {input: 0.10, output: 0.40}
     gemini-2.5-pro: {input: 1.25, output: 10.00}
     fake: {input: 0.0, output: 0.0}
 
@@ -38,6 +42,8 @@ segmentation:
   split_long_blocks: true
   atomic_types: [heading, list_item, table_cell, caption]
   prompt_version: discourse_v1
+  decision_max_tokens: 16
+  decision_thinking_budget: 0   # 0 = no reasoning for the yes/no call
   boundary_tolerance_chars: 2
   sentences:
     terminators: [".", "?", "!", "।", "॥", "…"]

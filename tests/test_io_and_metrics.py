@@ -205,3 +205,15 @@ def test_report_says_so_when_no_model_was_called(settings):
 
     results = build_results(settings, [], None, None)
     assert "no LLM calls" in results["model"]
+
+
+def test_report_warns_when_a_model_has_no_price(settings):
+    """The warning must be visible in report.md, not only in results.json."""
+    from mats_stod.evaluation.report import build_results, render_report
+    from mats_stod.llm.cost import CostLedger
+
+    ledger = CostLedger(prices_usd_per_mtok={})
+    ledger.record("translation", "unpriced-model", 1000, 100, cached=False)
+    text = render_report(build_results(settings, [], None, ledger), settings)
+    assert "cost above is incomplete" in text
+    assert "unpriced-model" in text

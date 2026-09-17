@@ -217,8 +217,8 @@ def test_comparison_table_names_the_fake_provider(workspace, tmp_path):
     assert "gemini" not in table
 
 
-def test_check_llm_reports_missing_credentials(workspace, monkeypatch):
-    """The diagnosis must be actionable and must not need a credential."""
+def _vertex_workspace(workspace, monkeypatch):
+    """A config pointing at Vertex with no credentials in the environment."""
     for name in ["GOOGLE_CLOUD_PROJECT", "GEMINI_API_KEY", "GOOGLE_API_KEY"]:
         monkeypatch.delenv(name, raising=False)
     import yaml
@@ -228,11 +228,49 @@ def test_check_llm_reports_missing_credentials(workspace, monkeypatch):
     cfg["llm"]["backend"] = "vertex"
     cfg["llm"]["project"] = None
     workspace.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    return workspace
 
-    result = runner.invoke(app, ["check-llm", "--config", str(workspace)])
+
+def test_check_llm_reports_missing_credentials(workspace, monkeypatch):
+    """The diagnosis must be actionable and must not need a credential.
+
+    Which message appears depends on whether the optional Gemini extra is
+    installed, and both are correct; the suite must pass either way, because
+    `uv sync --dev` alone does not install that extra.
+    """
+    cfg = _vertex_workspace(workspace, monkeypatch)
+    result = runner.invoke(app, ["check-llm", "--config", str(cfg)])
     assert result.exit_code == 1
     assert "GOOGLE_CLOUD_PROJECT" in result.output
+    assert any(
+        hint in result.output
+        for hint in ("gcloud auth application-default login", "uv sync --extra gemini")
+    ), result.output
+
+
+def test_check_llm_names_the_project_variable_when_the_sdk_is_present(workspace, monkeypatch):
+    """With the SDK installed, the missing piece is the project, and it says so."""
+    pytest.importorskip("google.genai", reason="needs the optional gemini extra")
+    cfg = _vertex_workspace(workspace, monkeypatch)
+    result = runner.invoke(app, ["check-llm", "--config", str(cfg)])
+    assert result.exit_code == 1
     assert "gcloud auth application-default login" in result.output
+
+
+def test_check_llm_tells_you_to_install_the_extra_when_it_is_missing(workspace, monkeypatch):
+    """Without the SDK, the first actionable step is installing it."""
+    import importlib
+
+    try:
+        importlib.import_module("google.genai")
+    except ImportError:
+        pass
+    else:
+        pytest.skip("the gemini extra is installed, so this path cannot be reached")
+    cfg = _vertex_workspace(workspace, monkeypatch)
+    result = runner.invoke(app, ["check-llm", "--config", str(cfg)])
+    assert result.exit_code == 1
+    assert "uv sync --extra gemini" in result.output
 
 
 def test_check_llm_succeeds_with_the_fake_provider(workspace):
