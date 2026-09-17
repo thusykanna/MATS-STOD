@@ -13,7 +13,7 @@ from typing import Any
 
 from ..config import Settings
 from ..evaluation.metrics import score_corpus, score_document
-from ..evaluation.report import _table
+from ..evaluation.report import _table, models_used
 from ..io.parallel import DocPair
 from ..io.runs import RunDir
 from ..llm.client import CachedLLM
@@ -99,7 +99,9 @@ def run_condition(
     )
 
 
-def render_comparison(results: list[ConditionResult], settings: Settings) -> str:
+def render_comparison(
+    results: list[ConditionResult], settings: Settings, model: str | None = None
+) -> str:
     rows = [
         [
             r.name,
@@ -132,7 +134,8 @@ def render_comparison(results: list[ConditionResult], settings: Settings) -> str
     )
     lines = [
         f"# Strategy comparison ({settings.langs.direction})\n",
-        f"Model: {settings.llm.model}. Prompt: {settings.translation.prompt_version}. "
+        f"Model: {model or settings.llm.model}. "
+        f"Prompt: {settings.translation.prompt_version}. "
         f"Documents: {results[0].n_docs if results else 0}.\n",
         body,
     ]
@@ -152,12 +155,16 @@ def run_comparison(
     run: RunDir,
 ) -> dict[str, Any]:
     results = [run_condition(name, pairs, settings, llm, run) for name in strategies]
+    # The model that was actually called, not the one named in config; with
+    # `--provider fake` those differ and the table must not claim otherwise.
+    model = models_used(llm.ledger)
     payload = {
         "direction": settings.langs.direction,
-        "model": settings.llm.model,
+        "model": model,
+        "model_configured": settings.llm.model,
         "n_docs": len(pairs),
         "conditions": [r.__dict__ for r in results],
     }
     run.write_json("comparison.json", payload)
-    run.write_text("comparison.md", render_comparison(results, settings))
+    run.write_text("comparison.md", render_comparison(results, settings, model))
     return payload

@@ -179,3 +179,29 @@ def test_run_dir_records_config_and_git(settings):
     assert (run.path / "config_used.yaml").exists()
     meta = json.loads((run.path / "run_meta.json").read_text())
     assert meta["direction"] == settings.langs.direction
+
+
+def test_report_names_the_model_actually_called_not_the_configured_one(settings):
+    """A report must never attribute numbers to a model it did not call.
+
+    `--provider fake` leaves `llm.model` in the config untouched, so reading
+    the model from config printed a Gemini model name on runs that never
+    reached Gemini.
+    """
+    from mats_stod.evaluation.report import build_results
+    from mats_stod.llm.cost import CostLedger
+
+    settings.llm.model = "gemini-2.0-flash-001"
+    ledger = CostLedger()
+    ledger.record("translation", "fake", 10, 5, cached=False)
+
+    results = build_results(settings, [], None, ledger)
+    assert results["model"] == "fake"
+    assert results["model_configured"] == "gemini-2.0-flash-001"
+
+
+def test_report_says_so_when_no_model_was_called(settings):
+    from mats_stod.evaluation.report import build_results
+
+    results = build_results(settings, [], None, None)
+    assert "no LLM calls" in results["model"]

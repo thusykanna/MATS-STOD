@@ -27,6 +27,19 @@ def _table(headers: list[str], rows: list[list[Any]]) -> str:
     return "\n".join(out) + "\n"
 
 
+def models_used(ledger: CostLedger | None) -> str:
+    """The model or models this run actually called.
+
+    Read from the ledger rather than from config, because the two can differ:
+    `--provider fake` leaves the configured model name untouched, and a report
+    that named a model it never called would misattribute every number in it.
+    """
+    if ledger is None or not ledger.calls:
+        return "none (no LLM calls in this run)"
+    names = sorted({c.model for c in ledger.calls})
+    return ", ".join(names)
+
+
 def build_results(
     settings: Settings,
     doc_scores: list[DocScore],
@@ -40,7 +53,8 @@ def build_results(
         "strategy": settings.translation.strategy,
         "segmenter": settings.segmentation.segmenter,
         "edge_inferrer": settings.graph.edge_inferrer,
-        "model": settings.llm.model,
+        "model": models_used(ledger),
+        "model_configured": settings.llm.model,
         "corpus": asdict(corpus) if corpus else None,
         "documents": [asdict(d) for d in doc_scores],
         "cost": ledger.summary() if ledger else None,
@@ -62,7 +76,8 @@ def render_report(results: dict[str, Any], settings: Settings) -> str:
                 ["strategy", results.get("strategy")],
                 ["segmenter", results.get("segmenter")],
                 ["edge inferrer", results.get("edge_inferrer")],
-                ["model", results.get("model")],
+                ["model actually called", results.get("model")],
+                ["model in config", results.get("model_configured")],
                 ["primary metric", settings.evaluation.primary_metric],
                 ["BLEU tokeniser", settings.evaluation.bleu_tokenize],
             ],

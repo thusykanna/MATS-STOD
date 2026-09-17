@@ -203,3 +203,15 @@ def test_gold_for_one_language_is_not_scored_against_the_other(workspace, tmp_pa
     )
     si = json.loads((tmp_path / "runs" / "seg-si" / "results.json").read_text())
     assert si["segmentation_scores"]["documents"][0]["doc_id"] == "circular_01"
+
+
+def test_comparison_table_names_the_fake_provider(workspace, tmp_path):
+    """The table must say what it actually called."""
+    run(
+        "compare", "--config", str(workspace), "--strategies", "B1",
+        "--provider", "fake", "--data", "data/samples", "--portion", "all",
+        "--max-docs", "1", "--run-id", "cmp-model",
+    )
+    table = (tmp_path / "runs" / "cmp-model" / "comparison.md").read_text()
+    assert "Model: fake" in table
+    assert "gemini" not in table
