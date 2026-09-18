@@ -285,6 +285,46 @@ releases; `uv` pins it without touching the system installation.
 
 ---
 
+### D29. The edge-inferrer registry names every inferrer before any exists
+
+**Decision.** `build_edge_inferrer` lists all four names (`graft`,
+`predecessor`, `tfidf`, `none`) from the first commit. An inferrer that is
+named but not yet written raises `NotImplementedError` naming the file to
+create.
+*Alternative rejected.* Adding each name to the registry as its inferrer
+lands.
+**Reason.** The inferrers are being written by different people at the same
+time. If each one had to add its own branch to the registry, every inferrer
+would touch the same function and every merge would conflict on it. Naming
+them all up front means a new inferrer is a new file and nothing else. The
+error message is part of the contract, so it is covered by a test.
+
+### D30. The parent cap keeps the nearest parents by reading order
+
+**Decision.** When a segment has more than `graph.max_parents` parents, the
+ones kept are those closest to it in reading order. The rule is named in
+`assemble.PARENT_CAP_RULE` and written into every graph's metadata.
+*Alternative rejected.* Ranking parents by edge confidence.
+**Reason.** GRAFT's edge agent answers one yes/no question and returns no
+confidence (D6), so there is no score to rank by. Distance is the only
+signal available.
+**Consequence, which must be stated in any report:** the cap discards the
+most distant parents first, and those are exactly the dependencies a sliding
+window cannot supply. A cap set too low therefore removes the effect D1 is
+meant to demonstrate before it can be measured. `max_parents` is a config
+value so this can be run as an ablation rather than assumed.
+
+### D31. Transitive reduction is off by default
+
+**Decision.** `graph.transitive_reduction` defaults to false; the assembled
+graph keeps edges that a longer path already implies.
+*Alternative rejected.* Reducing by default for a cleaner graph.
+**Reason.** Reduction removes short-range edges whenever a longer path exists
+between the same pair. Those short-range edges are the ones a sliding window
+would also have supplied, so removing them changes what D1 is being credited
+for. It is a legitimate ablation and a genuine help when reading a diagram,
+but it is not tidying, so it is not the default.
+
 ## Deferred, with the consequence recorded
 
 ### D28. Layout extraction is deferred
