@@ -17,7 +17,7 @@ Translation*, EMNLP 2025 Industry Track, [arXiv
 | M0 | Scaffold, schemas, LLM cache, cost ledger, metrics, reports | Done |
 | M1 | Baseline translation: B0, B1, B2 | Done |
 | M2 | Segmentation: structural and GRAFT discourse agent | Done |
-| M3 | Edge inference and DAG assembly | Not started |
+| M3 | Edge inference and DAG assembly | Core done; inferrers in progress |
 | M4 | DAG-context translation and the ablation | Not started |
 
 Both translation directions are supported everywhere: `si→ta` and `ta→si`.
@@ -34,7 +34,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 git clone <this-repo> && cd MATS-STOD
 uv sync --dev          # Python, dependencies and test tooling
-uv run pytest          # 166 pass, 1 skipped, offline, ~3s
+uv run pytest          # 219 pass, 1 skipped, offline, ~2s
 ```
 
 That is the whole setup for everything except calling a real model. No Google
@@ -198,6 +198,7 @@ Budget controls, available on every command:
 | `translate --strategy B0\|B1\|B2` | Translate under one context strategy |
 | `compare --strategies B0,B1,B2` | Run several conditions, one comparison table |
 | `segment --segmenter structural\|graft` | Segment and score against gold |
+| `build-graph --edges graft\|predecessor\|tfidf\|none` | Build the discourse graph, score against gold |
 | `eval --hyp DIR --ref DIR` | Score two directories of `.txt` files |
 | `annotate-template DOC` | Write a hand-editable gold annotation file |
 | `annotate-import FILE` | Convert a filled-in template into gold JSON |

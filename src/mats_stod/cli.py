@@ -39,6 +39,7 @@ def _settings(
     target: str | None,
     strategy: str | None = None,
     segmenter: str | None = None,
+    edges: str | None = None,
     model: str | None = None,
     provider: str | None = None,
 ) -> Settings:
@@ -53,6 +54,8 @@ def _settings(
         overrides.setdefault("translation", {})["strategy"] = strategy
     if segmenter:
         overrides.setdefault("segmentation", {})["segmenter"] = segmenter
+    if edges:
+        overrides.setdefault("graph", {})["edge_inferrer"] = edges
     if model:
         overrides.setdefault("llm", {})["model"] = model
     if provider:
@@ -253,6 +256,63 @@ def segment(
     typer.echo(
         f"{stats['n_documents']} documents, {stats['n_segments_total']} segments, "
         f"{stats['llm_calls_total']} LLM calls"
+    )
+    typer.echo(f"Report: {run.path / 'report.md'}")
+
+
+@app.command("build-graph")
+def build_graph(
+    edges: str = typer.Option(
+        "graft", "--edges", help="graft, predecessor, tfidf or none."
+    ),
+    config: str | None = typer.Option(None, "--config"),
+    experiment: list[str] | None = typer.Option(None, "--experiment"),
+    data: str | None = typer.Option(None, "--data"),
+    portion: str = typer.Option("dev", "--portion"),
+    source: str | None = typer.Option(None, "--source"),
+    target: str | None = typer.Option(None, "--target"),
+    segmenter: str | None = typer.Option(None, "--segmenter"),
+    model: str | None = typer.Option(None, "--model"),
+    provider: str | None = typer.Option(None, "--provider"),
+    max_docs: int | None = typer.Option(None, "--max-docs"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    run_id: str | None = typer.Option(None, "--run-id"),
+) -> None:
+    """Build a discourse graph per document and score against gold when it exists."""
+    from .pipelines.graph_pipeline import run_graph_build
+
+    settings = _settings(
+        config,
+        experiment,
+        source,
+        target,
+        segmenter=segmenter,
+        edges=edges,
+        model=model,
+        provider=provider,
+    )
+    pairs = _load_docs(settings, data, portion, max_docs)
+    # Only the LLM-backed inferrers and the graft segmenter need a client; the
+    # deterministic ones must stay runnable with no credentials at all.
+    needs_llm = (
+        settings.graph.edge_inferrer == "graft" or settings.segmentation.segmenter == "graft"
+    )
+    llm = build_llm(settings, dry_run=dry_run) if needs_llm else None
+    run = RunDir.create(settings, prefix=f"graph-{edges}", run_id=run_id, dry_run=dry_run)
+
+    extra = run_graph_build(pairs, settings, llm, run)
+    write_report(run, settings, [], None, llm.ledger if llm else None, extra=extra)
+
+    stats = extra["graph_stats"]
+    typer.echo(
+        f"{stats['n_documents']} documents, {stats['n_edges_total']} edges, "
+        f"{stats['llm_calls_total']} LLM calls"
+    )
+    # The number that decides whether a DAG condition can beat a sliding
+    # window at all, printed where it cannot be missed.
+    typer.echo(
+        f"adjacent-only edges {stats['adjacent_only_share']:.1%}  |  "
+        f"segments with a non-adjacent parent {stats['share_with_nonadjacent_parent']:.1%}"
     )
     typer.echo(f"Report: {run.path / 'report.md'}")
 

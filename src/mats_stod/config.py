@@ -148,6 +148,14 @@ class GraphSettings(BaseModel):
     tfidf_threshold: float = 0.8
     transitive_reduction: bool = False
     prompt_version: str = "edge_v1"
+    #: GRAFT's edge agent answers in one word. The cap is a little larger so a
+    #: model that replies "Yes." rather than "yes" is not truncated.
+    decision_max_tokens: int = 16
+    #: 0 disables reasoning for the yes/no call. Without this a thinking model
+    #: spends the whole output budget reasoning and returns nothing, which
+    #: would silently turn every pair into "not connected" and produce an
+    #: edgeless graph that still looks like a successful run.
+    decision_thinking_budget: int | None = 0
 
     @field_validator("edge_types")
     @classmethod
