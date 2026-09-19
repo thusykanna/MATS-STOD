@@ -14,10 +14,10 @@ Translation*, EMNLP 2025 Industry Track, [arXiv
 
 | Stage | What it covers | State |
 |---|---|---|
-| M0 | Scaffold, schemas, LLM cache, cost ledger, metrics, reports | Done |
-| M1 | Baseline translation: B0, B1, B2 | Done |
-| M2 | Segmentation: structural and GRAFT discourse agent | Done |
-| M3 | Edge inference and DAG assembly | Core done; inferrers in progress |
+| M0 | Scaffold, schemas, LLM cache, call ledger, metrics, reports | Done |
+| M1 | Baseline translation: B0 (whole document) | Done |
+| M2 | Segmentation: GRAFT discourse agent | Done |
+| M3 | Edge inference (GRAFT) and DAG assembly | Done |
 | M4 | DAG-context translation and the ablation | Not started |
 
 Both translation directions are supported everywhere: `si→ta` and `ta→si`.
@@ -34,7 +34,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 git clone <this-repo> && cd MATS-STOD
 uv sync --dev          # Python, dependencies and test tooling
-uv run pytest          # 219 pass, 1 skipped, offline, ~2s
+uv run pytest          # 207 pass, 1 skipped, offline, ~2s
 ```
 
 That is the whole setup for everything except calling a real model. No Google
@@ -53,8 +53,7 @@ Then follow [Using a real model](#using-a-real-model) below.
 
 ```bash
 uv run mats-stod make-split --data data/samples # throwaway split over the samples
-uv run mats-stod compare --strategies B0,B1,B2 \
-    --provider fake --data data/samples --portion all
+uv run mats-stod compare --provider fake --data data/samples --portion all
 ```
 
 Output lands in `runs/<run_id>/`: `report.md`, `results.json`,
@@ -155,7 +154,7 @@ a message or a screenshot.
 Then run for real, smallest first:
 
 ```bash
-uv run mats-stod translate --strategy B2 --max-docs 1
+uv run mats-stod translate --max-docs 1
 ```
 
 ### When it goes wrong
@@ -188,17 +187,17 @@ Budget controls, available on every command:
 - `--max-docs N` caps how many documents are processed.
 - `--dry-run` serves cached calls and **fails** on the first uncached one,
   rather than inventing an answer.
-- Every call goes through a SQLite cache, so a re-run costs nothing. The report
-  prints both what the run spent and what it would cost from a cold cache.
+- Every call goes through a SQLite cache, so a re-run makes no new calls. The
+  report prints how many calls were made and how many were served from cache.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
-| `translate --strategy B0\|B1\|B2` | Translate under one context strategy |
-| `compare --strategies B0,B1,B2` | Run several conditions, one comparison table |
-| `segment --segmenter structural\|graft` | Segment and score against gold |
-| `build-graph --edges graft\|predecessor\|tfidf\|none` | Build the discourse graph, score against gold |
+| `translate` | Translate under the B0 (whole-document) condition |
+| `compare` | Run the B0 condition, write a results table |
+| `segment` | Segment with GRAFT and score against gold |
+| `build-graph` | Build the discourse graph with GRAFT, score against gold |
 | `eval --hyp DIR --ref DIR` | Score two directories of `.txt` files |
 | `annotate-template DOC` | Write a hand-editable gold annotation file |
 | `annotate-import FILE` | Convert a filled-in template into gold JSON |
@@ -214,27 +213,23 @@ same documents. `make-split` refuses to overwrite an existing split.
 Direction is set with `--source` and `--target`, or by an experiment overlay:
 
 ```bash
-uv run mats-stod translate --strategy B2 --source ta --target si
-uv run mats-stod translate --experiment configs/experiments/B2_sliding_window_ta-si.yaml
+uv run mats-stod translate --source ta --target si
+uv run mats-stod translate --experiment configs/experiments/cap_4.yaml
 ```
 
-## The three baselines
+## The B0 condition
 
-| Strategy | Context given to each segment | Calls per document |
-|---|---|---|
-| `B0_full_document` | none, the whole document is one prompt | 1, or one per chunk if it exceeds the token limit |
-| `B1_isolated` | none | one per paragraph |
-| `B2_sliding_window` | previous `k` paragraphs and their translations | one per paragraph |
-
-`k` is `translation.window_k`, default 3. A B0 run that had to fall back to
-chunks records that fact in its report, because a chunked B0 is no longer B0.
+`translate` and `compare` currently run one condition: `B0_full_document`, the
+whole document in a single prompt (one call, or one per chunk if it exceeds
+the token limit). A B0 run that had to fall back to chunks records that fact
+in its report, because a chunked B0 is no longer B0. Other context strategies
+(a sliding window, DAG-based context) are a later comparison, not part of this
+initial stage.
 
 ## Segmentation
 
-`StructuralSegmenter` is rules only: one segment per block, short blocks merged
-forward, long blocks split at sentence boundaries. Zero LLM calls.
-
-`GraftDiscourseSegmenter` reproduces GRAFT's discourse agent. A discourse
+`GraftDiscourseSegmenter` reproduces GRAFT's discourse agent, the only
+segmenter this project runs for now. A discourse
 starts at one sentence and grows greedily, asking the model once per candidate
 next sentence whether it belongs. Cost is one call per boundary considered,
 linear in sentences.
@@ -253,7 +248,7 @@ on abbreviations (`කි.මී.`, `எ.கா.`), decimals (`115.5`), or claus
 uv run mats-stod annotate-template data/samples/circular_01 --out data/gold/templates
 # mark segment starts with B in column 2, add edges under EDGES
 uv run mats-stod annotate-import data/gold/templates/circular_01.si.annot.tsv
-uv run mats-stod segment --segmenter graft   # now reports P/R/F1, Pk, WindowDiff
+uv run mats-stod segment   # now reports P/R/F1, Pk, WindowDiff
 ```
 
 Annotate the Sinhala file and the Tamil file separately: each is a source
@@ -291,10 +286,6 @@ in Sinhala and dropping it from ශ්‍රී produces a different word.
 - **No real corpus yet.** `data/samples/` holds three hand-written synthetic
   documents, committed so tests and demos run. They are not government text and
   must never be reported as results.
-- **Prices in the config are not authoritative.** The cost ledger can only be
-  as right as `llm.prices_usd_per_mtok`. Verify those against Google's current
-  pricing before quoting a figure. A model absent from the table is reported as
-  unpriced rather than as free, and the report says the total is incomplete.
 - **No learned metric.** A `LearnedMetric` protocol exists; COMET is not
   installed, because it needs a model this machine cannot host and is not
   validated for Sinhala–Tamil.
@@ -316,10 +307,10 @@ src/mats_stod/
   schemas.py        Document, Segment, Edge, DiscourseGraph, TranslationRecord
   config.py         typed settings; no magic constants anywhere else
   io/               loaders, NFC normalisation, run directories, fixed split
-  llm/              LLMClient, Gemini provider, cache, cost ledger, FakeLLM
+  llm/              LLMClient, Gemini provider, cache, call ledger, FakeLLM
   prompts/          versioned .jinja templates, never inline strings
   parsing/          LayoutParser interface, PlainTextParser, deferred stubs
-  segmentation/     sentence splitter, structural and GRAFT segmenters
+  segmentation/     sentence splitter, GRAFT discourse segmenter
   translation/      context strategies, translator, protected-content checks
   evaluation/       metrics, segmentation scorer, reports, annotation helper
   pipelines/        baseline, comparison, segmentation

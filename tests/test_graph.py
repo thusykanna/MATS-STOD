@@ -1,8 +1,7 @@
-"""Phase 1 of M3: the shared graph core.
+"""The shared graph core: structural edges, assembly, stats, export, scoring.
 
-These tests cover everything that is the same for every edge inferrer. The
-inferrers themselves (`graft`, `predecessor`, `tfidf`) are tested by whoever
-writes them; nothing here needs an LLM or a network.
+Nothing here needs an LLM or a network; `graft_edges.py`'s own tests cover the
+LLM-backed inferrer itself.
 """
 
 from __future__ import annotations
@@ -20,10 +19,6 @@ from mats_stod.evaluation.edge_score import (
     score_edges,
 )
 from mats_stod.graph.assemble import assemble_graph
-from mats_stod.graph.edge_inference import (
-    NoneEdgeInferrer,
-    build_edge_inferrer,
-)
 from mats_stod.graph.export import to_mermaid, write_graphml, write_json
 from mats_stod.graph.stats import aggregate_graph_stats, graph_stats
 from mats_stod.graph.structural_edges import (
@@ -100,56 +95,6 @@ def edge(src: int, dst: int, type_: str = "graft_dependency") -> Edge:
 
 
 # --------------------------------------------------------------------------
-# The registry
-# --------------------------------------------------------------------------
-
-
-def test_none_inferrer_proposes_nothing(settings: Settings) -> None:
-    result = build_edge_inferrer("none", settings).infer(plain_segments(3))
-    assert isinstance(build_edge_inferrer("none", settings), NoneEdgeInferrer)
-    assert result.edges == []
-    assert result.stats["llm_calls"] == 0
-
-
-@pytest.mark.parametrize(
-    ("name", "module"),
-    [("predecessor", "simple_edges"), ("tfidf", "simple_edges")],
-)
-def test_unbuilt_inferrer_names_its_file(settings: Settings, name: str, module: str) -> None:
-    """An inferrer in the registry but not on disk must say where it belongs.
-
-    This is what lets two people work on different inferrers without either
-    editing the registry, so the message is part of the contract.
-    """
-    with pytest.raises(NotImplementedError) as excinfo:
-        build_edge_inferrer(name, settings)
-    assert module in str(excinfo.value)
-
-
-def test_graft_is_built_and_needs_a_client(settings: Settings) -> None:
-    """The one inferrer that costs money is also the one that needs a client.
-
-    Asking for it without one must fail at construction, not after the first
-    call has already been billed.
-    """
-    from mats_stod.graph.graft_edges import GraftPairwiseEdgeInferrer
-    from mats_stod.llm.factory import build_llm
-    from mats_stod.llm.fake import FakeLLM
-
-    with pytest.raises(ValueError, match="needs an LLM client"):
-        build_edge_inferrer("graft", settings)
-
-    settings.llm.use_cache = False
-    llm = build_llm(settings, provider=FakeLLM(default="no"))
-    assert isinstance(build_edge_inferrer("graft", settings, llm), GraftPairwiseEdgeInferrer)
-
-
-def test_unknown_inferrer_rejected(settings: Settings) -> None:
-    with pytest.raises(ValueError, match="unknown edge inferrer"):
-        build_edge_inferrer("nonsense", settings)
-
-
-# --------------------------------------------------------------------------
 # Pass 1: structural edges
 # --------------------------------------------------------------------------
 
@@ -223,9 +168,13 @@ def test_structural_pass_is_empty_under_the_plaintext_parser(sample_doc, setting
     real parser lands and this test starts failing, that is the signal the
     consequence no longer holds and DECISIONS.md needs revising.
     """
-    from mats_stod.segmentation.base import build_segmenter
+    from mats_stod.llm.factory import build_llm
+    from mats_stod.llm.fake import FakeLLM
+    from mats_stod.segmentation.graft_discourse import GraftDiscourseSegmenter
 
-    segs = build_segmenter("structural", settings).segment(sample_doc).segments
+    settings.llm.use_cache = False
+    llm = build_llm(settings, provider=FakeLLM(default="no"))
+    segs = GraftDiscourseSegmenter(settings, llm).segment(sample_doc).segments
     assert infer_structural_edges(sample_doc, segs) == []
 
 
@@ -485,16 +434,27 @@ def test_aggregate_over_documents(settings: Settings) -> None:
 # --------------------------------------------------------------------------
 
 
+def _fake_graph_llm(settings: Settings):
+    from mats_stod.llm.factory import build_llm
+    from mats_stod.llm.fake import FakeLLM
+
+    settings.llm.use_cache = False
+    # Every yes/no decision comes back "no", so the graph carries only the
+    # unconditional predecessor edges GRAFT always adds, letting these tests
+    # stay deterministic and offline.
+    return build_llm(settings, provider=FakeLLM(default="no"))
+
+
 def test_build_graph_pipeline_writes_every_artifact(settings: Settings, tmp_path: Path) -> None:
-    """The whole path runs with no LLM and no network when edges are `none`."""
+    """The whole path runs end to end against a fake, offline LLM."""
     from mats_stod.io.parallel import load_parallel
     from mats_stod.io.runs import RunDir
     from mats_stod.pipelines.graph_pipeline import run_graph_build
 
-    settings.graph.edge_inferrer = "none"
+    llm = _fake_graph_llm(settings)
     pairs = load_parallel(SAMPLES, "si", "ta", max_docs=1)
     run = RunDir.create(settings, prefix="test-graph")
-    extra = run_graph_build(pairs, settings, None, run)
+    extra = run_graph_build(pairs, settings, llm, run)
 
     base = run.path / "documents" / pairs[0].doc_id
     for name in ("graph.json", "graph.mmd", "graph.graphml", "graph_stats.json"):
@@ -511,9 +471,9 @@ def test_build_graph_scores_against_gold_when_it_exists(settings: Settings) -> N
     from mats_stod.io.runs import RunDir
     from mats_stod.pipelines.graph_pipeline import build_document_graph, run_graph_build
 
-    settings.graph.edge_inferrer = "none"
+    llm = _fake_graph_llm(settings)
     pairs = load_parallel(SAMPLES, "si", "ta", max_docs=1)
-    built = build_document_graph(pairs[0], settings, None)
+    built = build_document_graph(pairs[0], settings, llm)
 
     gold_dir = Path(settings.paths.gold_edges)
     gold_dir.mkdir(parents=True, exist_ok=True)
@@ -531,9 +491,9 @@ def test_build_graph_scores_against_gold_when_it_exists(settings: Settings) -> N
         encoding="utf-8",
     )
 
-    extra = run_graph_build(pairs, settings, None, RunDir.create(settings, prefix="test-graph"))
+    extra = run_graph_build(pairs, settings, llm, RunDir.create(settings, prefix="test-graph"))
     assert "edge_scores" in extra
-    # `none` proposes nothing, so recall is zero against a real gold edge.
+    # Every decision came back "no", so recall is zero against a real gold edge.
     assert extra["edge_scores"]["corpus"]["recall_untyped"] == 0.0
 
 
@@ -546,8 +506,8 @@ def test_cli_build_graph_runs_offline() -> None:
         app,
         [
             "build-graph",
-            "--edges",
-            "none",
+            "--provider",
+            "fake",
             "--data",
             str(SAMPLES),
             "--portion",

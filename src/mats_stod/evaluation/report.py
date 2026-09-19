@@ -13,7 +13,7 @@ from typing import Any
 
 from ..config import Settings
 from ..io.runs import RunDir
-from ..llm.cost import CostLedger
+from ..llm.ledger import CallLedger
 from .metrics import CorpusScore, DocScore
 
 
@@ -27,7 +27,7 @@ def _table(headers: list[str], rows: list[list[Any]]) -> str:
     return "\n".join(out) + "\n"
 
 
-def models_used(ledger: CostLedger | None) -> str:
+def models_used(ledger: CallLedger | None) -> str:
     """The model or models this run actually called.
 
     Read from the ledger rather than from config, because the two can differ:
@@ -44,20 +44,17 @@ def build_results(
     settings: Settings,
     doc_scores: list[DocScore],
     corpus: CorpusScore | None,
-    ledger: CostLedger | None,
+    ledger: CallLedger | None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "run_name": settings.run_name,
         "direction": settings.langs.direction,
-        "strategy": settings.translation.strategy,
-        "segmenter": settings.segmentation.segmenter,
-        "edge_inferrer": settings.graph.edge_inferrer,
         "model": models_used(ledger),
         "model_configured": settings.llm.model,
         "corpus": asdict(corpus) if corpus else None,
         "documents": [asdict(d) for d in doc_scores],
-        "cost": ledger.summary() if ledger else None,
+        "calls": ledger.summary() if ledger else None,
         **(extra or {}),
     }
 
@@ -73,9 +70,6 @@ def render_report(results: dict[str, Any], settings: Settings) -> str:
             ["setting", "value"],
             [
                 ["direction", results.get("direction")],
-                ["strategy", results.get("strategy")],
-                ["segmenter", results.get("segmenter")],
-                ["edge inferrer", results.get("edge_inferrer")],
                 ["model actually called", results.get("model")],
                 ["model in config", results.get("model_configured")],
                 ["primary metric", settings.evaluation.primary_metric],
@@ -153,44 +147,28 @@ def render_report(results: dict[str, Any], settings: Settings) -> str:
             )
         )
 
-    cost = results.get("cost")
-    if cost:
-        lines.append("\n## Cost\n")
+    calls = results.get("calls")
+    if calls:
+        lines.append("\n## LLM calls\n")
         lines.append(
             _table(
                 ["measure", "value"],
                 [
-                    ["LLM calls", cost["calls"]],
-                    ["cache hits", cost["cache_hits"]],
-                    ["tokens in (billed)", cost["tokens_in_billed"]],
-                    ["tokens out (billed)", cost["tokens_out_billed"]],
-                    ["USD spent this run", cost["cost_usd_billed"]],
-                    ["USD from a cold cache", cost["cost_usd_cold"]],
+                    ["LLM calls", calls["calls"]],
+                    ["cache hits", calls["cache_hits"]],
+                    ["tokens in (billed)", calls["tokens_in_billed"]],
+                    ["tokens out (billed)", calls["tokens_out_billed"]],
                 ],
             )
         )
-        unpriced = cost.get("models_without_prices") or []
-        if unpriced:
-            lines.append(
-                "\n> **The cost above is incomplete.** No price is configured for "
-                f"{', '.join(unpriced)}, so those calls counted as zero. Add them under "
-                "`llm.prices_usd_per_mtok` in the config. Token counts are unaffected.\n"
-            )
-        by_purpose = cost.get("by_purpose") or {}
+        by_purpose = calls.get("by_purpose") or {}
         if by_purpose:
             lines.append("\nBy purpose:\n")
             lines.append(
                 _table(
-                    ["purpose", "calls", "cached", "tokens in", "tokens out", "USD cold"],
+                    ["purpose", "calls", "cached", "tokens in", "tokens out"],
                     [
-                        [
-                            k,
-                            v["calls"],
-                            v["cached"],
-                            v["tokens_in"],
-                            v["tokens_out"],
-                            round(v["cost_usd_cold"], 6),
-                        ]
+                        [k, v["calls"], v["cached"], v["tokens_in"], v["tokens_out"]]
                         for k, v in sorted(by_purpose.items())
                     ],
                 )
@@ -213,7 +191,7 @@ def write_report(
     settings: Settings,
     doc_scores: list[DocScore],
     corpus: CorpusScore | None,
-    ledger: CostLedger | None,
+    ledger: CallLedger | None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Write results.json and report.md into the run directory."""

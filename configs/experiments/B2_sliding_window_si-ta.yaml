@@ -1,7 +1,0 @@
-# Experiment condition B2_sliding_window, direction si->ta.
-run_name: B2_sliding_window_si-ta
-langs:
-  source: si
-  target: ta
-translation:
-  strategy: B2_sliding_window

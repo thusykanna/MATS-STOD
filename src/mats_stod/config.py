@@ -63,19 +63,6 @@ class LLMSettings(BaseModel):
     # only fallbacks so a config can pin a project for reproducibility.
     project: str | None = None
     location: str = "us-central1"
-    #: USD per million tokens. Used for the cost ledger only; wrong numbers
-    #: make the ledger wrong, never the translation. A model absent from this
-    #: table is reported as unpriced, not as free.
-    prices_usd_per_mtok: dict[str, dict[str, float]] = Field(
-        default_factory=lambda: {
-            "gemini-2.5-flash": {"input": 0.30, "output": 2.50},
-            "gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
-            "fake": {"input": 0.0, "output": 0.0},
-        }
-    )
-
-    def price_for(self, model: str) -> dict[str, float]:
-        return self.prices_usd_per_mtok.get(model, {"input": 0.0, "output": 0.0})
 
 
 class SentenceSplitSettings(BaseModel):
@@ -109,7 +96,6 @@ class SentenceSplitSettings(BaseModel):
 
 
 class SegmentationSettings(BaseModel):
-    segmenter: str = "structural"  # structural | graft
     min_segment_chars: int = 40
     max_segment_chars: int = 1200
     #: GRAFT's max_discourse_length analogue: a hard cap that forces a
@@ -136,7 +122,6 @@ class SegmentationSettings(BaseModel):
 
 
 class GraphSettings(BaseModel):
-    edge_inferrer: str = "graft"  # graft | predecessor | tfidf | none
     edge_types: list[str] = Field(default_factory=lambda: list(EDGE_TYPES))
     max_parents: int = 4
     #: GRAFT's edge agent is quadratic. This is the per-document ceiling on
@@ -145,7 +130,6 @@ class GraphSettings(BaseModel):
     max_pairwise_calls_per_doc: int = 4000
     #: null keeps GRAFT faithful (every earlier segment is a candidate).
     max_pair_distance: int | None = None
-    tfidf_threshold: float = 0.8
     transitive_reduction: bool = False
     prompt_version: str = "edge_v1"
     #: GRAFT's edge agent answers in one word. The cap is a little larger so a
@@ -180,17 +164,14 @@ class ProtectSettings(BaseModel):
 
 
 class TranslationSettings(BaseModel):
-    strategy: str = "B1_isolated"
     prompt_version: str = "translate_v1"
     domain_note: str = "Official government document. Formal register."
-    window_k: int = 3
     #: B0 falls back to fixed chunks above this; recorded when it happens.
     full_doc_token_limit: int = 12000
     chunk_token_size: int = 4000
     #: Rough characters-per-token for Sinhala/Tamil used only for budgeting
     #: decisions, never for reported token counts.
     chars_per_token_estimate: float = 2.5
-    context_token_budget: int = 2000
     dag_context_depth: int = 2
     retry_on_parse_failure: int = 1
     protect: ProtectSettings = Field(default_factory=ProtectSettings)

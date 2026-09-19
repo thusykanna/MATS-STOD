@@ -1,6 +1,6 @@
 """The client every pipeline actually uses.
 
-`CachedLLM` wraps a provider with the disk cache, the cost ledger and a
+`CachedLLM` wraps a provider with the disk cache, the call ledger and a
 dry-run mode. Pipelines hold one of these and never see a provider directly,
 which is what keeps the budget controls in a single place.
 """
@@ -12,7 +12,7 @@ from typing import Any
 
 from .base import LLMClient, LLMResponse, Message
 from .cache import LLMCache, cache_key
-from .cost import CostLedger
+from .ledger import CallLedger
 
 
 class DryRunExhausted(RuntimeError):
@@ -30,7 +30,7 @@ class CachedLLM:
         self,
         provider: LLMClient,
         cache: LLMCache | None,
-        ledger: CostLedger,
+        ledger: CallLedger,
         dry_run: bool = False,
     ) -> None:
         self.provider = provider

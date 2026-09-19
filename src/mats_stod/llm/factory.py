@@ -6,8 +6,8 @@ from ..config import Settings
 from .base import LLMClient, LLMError
 from .cache import LLMCache
 from .client import CachedLLM
-from .cost import CostLedger
 from .fake import EchoLLM
+from .ledger import CallLedger
 
 
 def build_provider(settings: Settings, provider_override: str | None = None) -> LLMClient:
@@ -45,5 +45,5 @@ def build_llm(
     """
     raw = provider if provider is not None else build_provider(settings, provider_override)
     cache = LLMCache(settings.llm.cache_path) if settings.llm.use_cache else None
-    ledger = CostLedger(prices_usd_per_mtok=settings.llm.prices_usd_per_mtok)
+    ledger = CallLedger()
     return CachedLLM(raw, cache, ledger, dry_run=dry_run)

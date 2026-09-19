@@ -55,23 +55,22 @@ def test_make_split_then_reuse(workspace, tmp_path):
     assert set(split["dev"]) | set(split["test"]) == {"circular_01", "notice_02", "memo_03"}
 
 
-@pytest.mark.parametrize("strategy", ["B0", "B1", "B2"])
-def test_translate_each_strategy(workspace, tmp_path, strategy):
+def test_translate_runs_the_b0_condition(workspace, tmp_path):
     run(
-        "translate", "--config", str(workspace), "--strategy", strategy,
+        "translate", "--config", str(workspace),
         "--provider", "fake", "--data", "data/samples", "--portion", "all",
-        "--max-docs", "1", "--run-id", f"t-{strategy}",
+        "--max-docs", "1", "--run-id", "t-b0",
     )
-    results = json.loads((tmp_path / "runs" / f"t-{strategy}" / "results.json").read_text())
+    results = json.loads((tmp_path / "runs" / "t-b0" / "results.json").read_text())
     assert results["corpus"]["n_docs"] == 1
-    assert results["cost"]["calls"] > 0
+    assert results["calls"]["calls"] > 0
 
 
 @pytest.mark.parametrize("direction", [("si", "ta"), ("ta", "si")])
 def test_translate_runs_in_both_directions(workspace, tmp_path, direction):
     src, tgt = direction
     run(
-        "translate", "--config", str(workspace), "--strategy", "B1",
+        "translate", "--config", str(workspace),
         "--provider", "fake", "--data", "data/samples", "--portion", "all",
         "--source", src, "--target", tgt, "--max-docs", "1",
         "--run-id", f"dir-{src}{tgt}",
@@ -82,31 +81,26 @@ def test_translate_runs_in_both_directions(workspace, tmp_path, direction):
 
 def test_compare_produces_one_table(workspace, tmp_path):
     run(
-        "compare", "--config", str(workspace), "--strategies", "B0,B1,B2",
+        "compare", "--config", str(workspace),
         "--provider", "fake", "--data", "data/samples", "--portion", "all",
         "--max-docs", "1", "--run-id", "cmp",
     )
     table = (tmp_path / "runs" / "cmp" / "comparison.md").read_text()
-    for name in ["B0_full_document", "B1_isolated", "B2_sliding_window"]:
-        assert name in table
+    assert "B0_full_document" in table
     payload = json.loads((tmp_path / "runs" / "cmp" / "comparison.json").read_text())
-    assert len(payload["conditions"]) == 3
+    assert len(payload["conditions"]) == 1
 
 
-@pytest.mark.parametrize("segmenter", ["structural", "graft"])
-def test_segment_each_segmenter(workspace, tmp_path, segmenter):
+def test_segment_runs_with_graft(workspace, tmp_path):
     run(
-        "segment", "--config", str(workspace), "--segmenter", segmenter,
+        "segment", "--config", str(workspace),
         "--provider", "fake", "--data", "data/samples", "--portion", "all",
-        "--run-id", f"seg-{segmenter}",
+        "--run-id", "seg-graft",
     )
-    results = json.loads((tmp_path / "runs" / f"seg-{segmenter}" / "results.json").read_text())
+    results = json.loads((tmp_path / "runs" / "seg-graft" / "results.json").read_text())
     stats = results["segmentation_stats"]
     assert stats["n_documents"] == 3 and stats["n_segments_total"] > 0
-    if segmenter == "graft":
-        assert stats["llm_calls_total"] > 0
-    else:
-        assert stats["llm_calls_total"] == 0
+    assert stats["llm_calls_total"] > 0
 
 
 def test_eval_scores_a_directory(workspace, tmp_path):
@@ -120,23 +114,23 @@ def test_eval_scores_a_directory(workspace, tmp_path):
 
 def test_rerunning_is_free_because_of_the_cache(workspace, tmp_path):
     args = (
-        "translate", "--config", str(workspace), "--strategy", "B2",
+        "translate", "--config", str(workspace),
         "--provider", "fake", "--data", "data/samples", "--portion", "all",
         "--max-docs", "1",
     )
     run(*args, "--run-id", "cold")
     run(*args, "--run-id", "warm")
-    cold = json.loads((tmp_path / "runs" / "cold" / "results.json").read_text())["cost"]
-    warm = json.loads((tmp_path / "runs" / "warm" / "results.json").read_text())["cost"]
+    cold = json.loads((tmp_path / "runs" / "cold" / "results.json").read_text())["calls"]
+    warm = json.loads((tmp_path / "runs" / "warm" / "results.json").read_text())["calls"]
     assert cold["cache_hits"] == 0
     assert warm["cache_hits"] == warm["calls"]
-    assert warm["tokens_in_billed"] == 0 and warm["cost_usd_billed"] == 0
+    assert warm["tokens_in_billed"] == 0
 
 
 def test_dry_run_refuses_to_spend_tokens(workspace, tmp_path):
     result = runner.invoke(
         app,
-        ["translate", "--config", str(workspace), "--strategy", "B1", "--provider", "fake",
+        ["translate", "--config", str(workspace), "--provider", "fake",
          "--data", "data/samples", "--portion", "all", "--max-docs", "1",
          "--dry-run", "--run-id", "dry"],
     )
@@ -163,7 +157,7 @@ def test_segment_scores_against_gold_when_it_exists(workspace, tmp_path):
     run("annotate-import", str(tmp_path / "templates" / "circular_01.si.annot.tsv"),
         "--config", str(workspace))
     run(
-        "segment", "--config", str(workspace), "--segmenter", "structural",
+        "segment", "--config", str(workspace),
         "--data", "data/samples", "--portion", "all", "--run-id", "seg-gold",
     )
     results = json.loads((tmp_path / "runs" / "seg-gold" / "results.json").read_text())
@@ -187,7 +181,7 @@ def test_gold_for_one_language_is_not_scored_against_the_other(workspace, tmp_pa
 
     # Segmenting the Tamil side must find no gold and say so.
     run(
-        "segment", "--config", str(workspace), "--segmenter", "structural",
+        "segment", "--config", str(workspace),
         "--data", "data/samples", "--portion", "all",
         "--source", "ta", "--target", "si", "--run-id", "seg-ta",
     )
@@ -197,7 +191,7 @@ def test_gold_for_one_language_is_not_scored_against_the_other(workspace, tmp_pa
 
     # The Sinhala side, which the gold describes, is scored.
     run(
-        "segment", "--config", str(workspace), "--segmenter", "structural",
+        "segment", "--config", str(workspace),
         "--data", "data/samples", "--portion", "all",
         "--source", "si", "--target", "ta", "--run-id", "seg-si",
     )
@@ -208,7 +202,7 @@ def test_gold_for_one_language_is_not_scored_against_the_other(workspace, tmp_pa
 def test_comparison_table_names_the_fake_provider(workspace, tmp_path):
     """The table must say what it actually called."""
     run(
-        "compare", "--config", str(workspace), "--strategies", "B1",
+        "compare", "--config", str(workspace),
         "--provider", "fake", "--data", "data/samples", "--portion", "all",
         "--max-docs", "1", "--run-id", "cmp-model",
     )

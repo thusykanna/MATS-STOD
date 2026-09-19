@@ -1,4 +1,4 @@
-"""Cache, cost ledger, dry run and the fake provider."""
+"""Cache, call ledger, dry run and the fake provider."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import pytest
 from mats_stod.llm.base import Message, ParseError, parse_json_response, parse_yes_no
 from mats_stod.llm.cache import LLMCache, cache_key
 from mats_stod.llm.client import CachedLLM, DryRunExhausted
-from mats_stod.llm.cost import CostLedger
 from mats_stod.llm.fake import FakeLLM
+from mats_stod.llm.ledger import CallLedger
 
 
 def msg(text: str) -> list[Message]:
@@ -32,7 +32,7 @@ def test_cache_key_changes_with_every_input():
 
 def test_second_identical_call_is_a_cache_hit_and_costs_nothing(tmp_path):
     fake = FakeLLM(default="hi", tokens_in=100, tokens_out=50)
-    ledger = CostLedger(prices_usd_per_mtok={"fake": {"input": 1.0, "output": 2.0}})
+    ledger = CallLedger()
     llm = CachedLLM(fake, LLMCache(tmp_path / "c.sqlite"), ledger)
 
     first = llm.complete(msg("q"), purpose="translation")
@@ -41,21 +41,21 @@ def test_second_identical_call_is_a_cache_hit_and_costs_nothing(tmp_path):
     assert first.cached is False and second.cached is True
     assert fake.call_count == 1, "the provider must be called only once"
     assert ledger.tokens_in_billed == 100
-    assert ledger.cost_usd_billed == pytest.approx(100 / 1e6 * 1.0 + 50 / 1e6 * 2.0)
-    assert ledger.cost_usd_cold > ledger.cost_usd_billed
+    assert ledger.n_calls == 2
+    assert ledger.n_cached == 1
 
 
 def test_dry_run_refuses_an_uncached_call(tmp_path):
-    llm = CachedLLM(FakeLLM(default="hi"), LLMCache(tmp_path / "c.sqlite"), CostLedger(), dry_run=True)
+    llm = CachedLLM(FakeLLM(default="hi"), LLMCache(tmp_path / "c.sqlite"), CallLedger(), dry_run=True)
     with pytest.raises(DryRunExhausted):
         llm.complete(msg("q"))
 
 
 def test_dry_run_serves_a_cached_call(tmp_path):
     cache = LLMCache(tmp_path / "c.sqlite")
-    warm = CachedLLM(FakeLLM(default="hi"), cache, CostLedger())
+    warm = CachedLLM(FakeLLM(default="hi"), cache, CallLedger())
     warm.complete(msg("q"))
-    dry = CachedLLM(FakeLLM(default="other"), cache, CostLedger(), dry_run=True)
+    dry = CachedLLM(FakeLLM(default="other"), cache, CallLedger(), dry_run=True)
     assert dry.complete(msg("q")).text == "hi"
 
 
@@ -90,28 +90,19 @@ def test_parse_json_rejects_missing_key():
         parse_json_response('{"other": 1}', key="translation")
 
 
-def test_ledger_separates_billed_from_cold():
-    ledger = CostLedger(prices_usd_per_mtok={"m": {"input": 1.0, "output": 1.0}})
+def test_ledger_separates_billed_from_total_tokens():
+    ledger = CallLedger()
     ledger.record("translation", "m", 1_000_000, 0, cached=False)
     ledger.record("translation", "m", 1_000_000, 0, cached=True)
-    assert ledger.cost_usd_billed == pytest.approx(1.0)
-    assert ledger.cost_usd_cold == pytest.approx(2.0)
+    assert ledger.tokens_in_billed == 1_000_000
+    assert ledger.tokens_in_total == 2_000_000
     assert ledger.by_purpose()["translation"]["calls"] == 2
 
 
-def test_unpriced_model_is_reported_not_treated_as_free():
-    """A model missing from the price table must not print $0.00 silently."""
-    ledger = CostLedger(prices_usd_per_mtok={"known": {"input": 1.0, "output": 1.0}})
-    ledger.record("translation", "brand-new-model", 1_000_000, 0, cached=False)
-    summary = ledger.summary()
-    assert summary["models_without_prices"] == ["brand-new-model"]
-    assert summary["cost_is_complete"] is False
-
-
-def test_fully_priced_run_is_marked_complete():
-    ledger = CostLedger(prices_usd_per_mtok={"known": {"input": 1.0, "output": 1.0}})
+def test_ledger_summary_reports_calls_and_tokens():
+    ledger = CallLedger()
     ledger.record("translation", "known", 1_000_000, 0, cached=False)
     summary = ledger.summary()
-    assert summary["models_without_prices"] == []
-    assert summary["cost_is_complete"] is True
-    assert summary["cost_usd_billed"] == pytest.approx(1.0)
+    assert summary["calls"] == 1
+    assert summary["cache_hits"] == 0
+    assert summary["tokens_in_billed"] == 1_000_000

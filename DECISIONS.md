@@ -172,6 +172,10 @@ and what it would cost from an empty cache.
 *Alternative rejected.* Reporting only actual spend.
 **Reason.** The write-up needs the cost of the method, not the cost of the
 fifth re-run of it.
+**Status update (2026-09-19).** USD cost tracking was removed for the initial
+implementation stage; `llm/cost.py` was renamed to `llm/ledger.py` and now
+reports only calls, cache hits and token counts. Reinstating a cost figure
+means restoring a price table and the billed/cold split described here.
 
 ### D16. An unpriced model is reported, not counted as free
 
@@ -183,6 +187,9 @@ which is what the code did at first.
 **Reason.** Model names change faster than a config file does. A run on a new
 model printed "USD spent 0.0" while really spending money, which is a false
 statement in a report that will be defended.
+**Status update (2026-09-19).** Superseded by the removal described in D15:
+with no price table, there is nothing to be unpriced. The underlying risk this
+guarded against still applies if pricing returns.
 
 ### D17. A dry run raises rather than inventing an answer
 
@@ -255,6 +262,10 @@ not via `StructuralSegmenter`.
 **Reason.** The baselines are the control. If improving structural segmentation
 also improved the baseline it is measured against, the comparison would move
 under its own feet.
+**Status update (2026-09-19).** B1, B2 and `StructuralSegmenter` were removed
+to keep the initial implementation stage to GRAFT only; `NaiveParagraphSegmenter`
+went with them. Only B0 (whole document) remains. This decision's reasoning
+still applies and should be reinstated if B1/B2 return for comparison.
 
 ### D25. LangGraph is not used in Phase A or in segmentation
 
@@ -298,6 +309,12 @@ time. If each one had to add its own branch to the registry, every inferrer
 would touch the same function and every merge would conflict on it. Naming
 them all up front means a new inferrer is a new file and nothing else. The
 error message is part of the contract, so it is covered by a test.
+**Status update (2026-09-19).** `predecessor`, `tfidf` and `none` were never
+built and were dropped from `graph/edge_inference.py`, along with
+`build_edge_inferrer` itself: with only `graft` left, the registry was a
+pass-through and `graph_pipeline.py` now constructs `GraftPairwiseEdgeInferrer`
+directly. The `EdgeInferrer` interface stays, so a future comparison inferrer
+is a new class and one call-site change, not a registry redesign.
 
 ### D30. The parent cap keeps the nearest parents by reading order
 

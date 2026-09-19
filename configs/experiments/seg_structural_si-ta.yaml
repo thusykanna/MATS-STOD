@@ -1,7 +1,0 @@
-# Segmentation condition structural, direction si->ta.
-run_name: seg_structural_si-ta
-langs:
-  source: si
-  target: ta
-segmentation:
-  segmenter: structural

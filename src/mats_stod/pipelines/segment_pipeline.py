@@ -24,7 +24,7 @@ from ..io.runs import RunDir
 from ..llm.client import CachedLLM
 from ..parsing.plaintext import PlainTextParser
 from ..schemas import DiscourseGraph, Document, Segment
-from ..segmentation.base import build_segmenter
+from ..segmentation.graft_discourse import GraftDiscourseSegmenter
 
 
 @dataclass
@@ -37,7 +37,7 @@ class DocumentSegmentation:
 
 
 def segment_document(
-    pair: DocPair, settings: Settings, llm: CachedLLM | None = None
+    pair: DocPair, settings: Settings, llm: CachedLLM
 ) -> DocumentSegmentation:
     """Segment one document and check the invariants before returning it."""
     document = PlainTextParser().parse(
@@ -46,7 +46,7 @@ def segment_document(
         source_lang=pair.source_lang,
         direction=pair.direction,
     )
-    segmenter = build_segmenter(settings.segmentation.segmenter, settings, llm)
+    segmenter = GraftDiscourseSegmenter(settings, llm)
     result = segmenter.segment(document)
 
     # Invariants are enforced here, on every document, rather than in tests
@@ -89,7 +89,7 @@ def score_against_gold(
 def run_segmentation(
     pairs: list[DocPair],
     settings: Settings,
-    llm: CachedLLM | None,
+    llm: CachedLLM,
     run: RunDir,
 ) -> dict[str, Any]:
     """Segment every document, score where possible, write artifacts."""

@@ -18,17 +18,8 @@ from ..llm.client import CachedLLM
 from ..parsing.plaintext import PlainTextParser
 from ..schemas import Document, Segment, TranslationRecord
 from ..segmentation.base import SegmentationResult
-from ..segmentation.naive import (
-    NaiveParagraphSegmenter,
-    WholeDocumentSegmenter,
-    chunk_document,
-)
-from ..translation.context import (
-    B0FullDocument,
-    ContextStrategy,
-    TranslationState,
-    build_strategy,
-)
+from ..segmentation.naive import WholeDocumentSegmenter, chunk_document
+from ..translation.context import B0FullDocument, TranslationState
 from ..translation.translator import Translator
 
 
@@ -59,44 +50,38 @@ def parse_document(pair: DocPair) -> Document:
 
 
 def segment_for_strategy(
-    document: Document, strategy: ContextStrategy, settings: Settings
+    document: Document, settings: Settings
 ) -> tuple[SegmentationResult, list[str]]:
-    """Choose the segmentation a baseline condition requires.
+    """Segment a document for B0 (whole-document) translation.
 
-    B0 is one segment unless the document is too large, in which case it
-    becomes fixed chunks and the fallback is recorded as a note, because a
-    chunked B0 is no longer the condition it claims to be.
+    One segment unless the document is too large, in which case it becomes
+    fixed chunks and the fallback is recorded as a note, because a chunked B0
+    is no longer the condition it claims to be.
     """
     notes: list[str] = []
-    if isinstance(strategy, B0FullDocument):
-        est = estimate_tokens(
-            document.raw_text, settings.translation.chars_per_token_estimate
+    est = estimate_tokens(document.raw_text, settings.translation.chars_per_token_estimate)
+    if est > settings.translation.full_doc_token_limit:
+        max_chars = int(
+            settings.translation.chunk_token_size * settings.translation.chars_per_token_estimate
         )
-        if est > settings.translation.full_doc_token_limit:
-            max_chars = int(
-                settings.translation.chunk_token_size
-                * settings.translation.chars_per_token_estimate
-            )
-            notes.append(
-                f"B0 fallback: document estimated at {est} tokens, above the limit of "
-                f"{settings.translation.full_doc_token_limit}; translated in fixed chunks "
-                f"of at most {max_chars} characters."
-            )
-            return chunk_document(document, max_chars), notes
-        return WholeDocumentSegmenter().segment(document), notes
-    return NaiveParagraphSegmenter().segment(document), notes
+        notes.append(
+            f"B0 fallback: document estimated at {est} tokens, above the limit of "
+            f"{settings.translation.full_doc_token_limit}; translated in fixed chunks "
+            f"of at most {max_chars} characters."
+        )
+        return chunk_document(document, max_chars), notes
+    return WholeDocumentSegmenter().segment(document), notes
 
 
 def translate_document(
     pair: DocPair,
     settings: Settings,
     llm: CachedLLM,
-    strategy: ContextStrategy | None = None,
 ) -> DocumentTranslation:
-    """Translate one document under one context strategy."""
-    strat = strategy or build_strategy(settings.translation.strategy, settings)
+    """Translate one document under the B0 (whole-document) condition."""
+    strat = B0FullDocument(settings)
     document = parse_document(pair)
-    seg_result, notes = segment_for_strategy(document, strat, settings)
+    seg_result, notes = segment_for_strategy(document, settings)
     state = TranslationState(segments=seg_result.segments)
     translator = Translator(settings, llm)
 

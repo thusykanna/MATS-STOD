@@ -1,8 +1,8 @@
 """Segmenter interface and shared helpers.
 
-The choice between rule-based and LLM-based segmentation is an open research
-question, so both live behind one interface and are selected by config, never
-by an import.
+Kept as an interface, not a registry: GRAFT is the only segmenter for now, but
+a future comparison method implements this ABC rather than being wired in ad
+hoc.
 """
 
 from __future__ import annotations
@@ -75,18 +75,3 @@ def segment_length_stats(segments: list[Segment]) -> dict[str, Any]:
         "chars_min": min(lengths),
         "chars_max": max(lengths),
     }
-
-
-def build_segmenter(name: str, settings, llm=None):  # noqa: ANN001 - avoids a config import cycle
-    """Instantiate a segmenter by config name."""
-    if name == "structural":
-        from .structural import StructuralSegmenter
-
-        return StructuralSegmenter(settings.segmentation)
-    if name == "graft":
-        from .graft_discourse import GraftDiscourseSegmenter
-
-        if llm is None:
-            raise ValueError("the graft segmenter needs an LLM client")
-        return GraftDiscourseSegmenter(settings, llm)
-    raise ValueError(f"unknown segmenter: {name!r}")

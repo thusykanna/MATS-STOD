@@ -1,4 +1,4 @@
-"""Structural and GRAFT segmentation, and the invariants on every document."""
+"""GRAFT segmentation, whole-document/chunk segmentation, and the invariants on every document."""
 
 from __future__ import annotations
 
@@ -7,18 +7,9 @@ import pytest
 from mats_stod.llm.factory import build_llm
 from mats_stod.llm.fake import FakeLLM
 from mats_stod.parsing.base import build_parser
-from mats_stod.parsing.plaintext import PlainTextParser
 from mats_stod.schemas import DiscourseGraph
-from mats_stod.segmentation.base import build_segmenter
 from mats_stod.segmentation.graft_discourse import GraftDiscourseSegmenter
-from mats_stod.segmentation.naive import (
-    NaiveParagraphSegmenter,
-    WholeDocumentSegmenter,
-    chunk_document,
-)
-from mats_stod.segmentation.structural import StructuralSegmenter
-
-SAMPLE_IDS = ["circular_01", "notice_02", "memo_03"]
+from mats_stod.segmentation.naive import WholeDocumentSegmenter, chunk_document
 
 
 def check_invariants(doc, segments, settings):
@@ -45,46 +36,6 @@ def test_block_offsets_slice_the_original_text(sample_doc):
 def test_deferred_parsers_raise_not_implemented(name):
     with pytest.raises(NotImplementedError):
         build_parser(name).parse("text", "d", "si")
-
-
-# -- structural -----------------------------------------------------------
-
-
-@pytest.mark.parametrize("doc_id", SAMPLE_IDS)
-@pytest.mark.parametrize("lang", ["si", "ta"])
-def test_structural_segmenter_holds_invariants_both_directions(doc_id, lang, settings):
-    from mats_stod.io.text import read_text
-
-    text = read_text(f"data/samples/{doc_id}/{doc_id}.{lang}")
-    doc = PlainTextParser().parse(text, doc_id, lang)
-    result = StructuralSegmenter(settings.segmentation).segment(doc)
-    assert result.segments
-    check_invariants(doc, result.segments, settings)
-    assert result.stats["llm_calls"] == 0
-
-
-def test_short_blocks_are_merged(settings, sample_doc):
-    settings.segmentation.min_segment_chars = 200
-    merged = StructuralSegmenter(settings.segmentation).segment(sample_doc)
-    settings.segmentation.min_segment_chars = 0
-    unmerged = StructuralSegmenter(settings.segmentation).segment(sample_doc)
-    assert len(merged.segments) < len(unmerged.segments)
-    check_invariants(sample_doc, merged.segments, settings)
-
-
-def test_long_blocks_are_split_at_sentence_boundaries(settings, sample_doc):
-    settings.segmentation.max_segment_chars = 80
-    settings.segmentation.min_segment_chars = 0
-    result = StructuralSegmenter(settings.segmentation).segment(sample_doc)
-    check_invariants(sample_doc, result.segments, settings)
-    # Splitting happened, and no segment ends mid-word.
-    assert len(result.segments) > len(sample_doc.blocks)
-
-
-def test_stats_include_length_distribution(settings, sample_doc):
-    stats = StructuralSegmenter(settings.segmentation).segment(sample_doc).stats
-    for key in ["n_segments", "chars_mean", "chars_median", "chars_min", "chars_max"]:
-        assert key in stats
 
 
 # -- GRAFT ----------------------------------------------------------------
@@ -150,25 +101,12 @@ def test_graft_atomic_blocks_are_never_merged(settings, sample_doc):
     check_invariants(doc, result.segments, settings)
 
 
-def test_build_segmenter_rejects_graft_without_an_llm(settings):
-    with pytest.raises(ValueError, match="needs an LLM"):
-        build_segmenter("graft", settings, None)
+# -- whole-document / chunking (used by B0) --------------------------------
 
 
-def test_build_segmenter_rejects_unknown_name(settings):
-    with pytest.raises(ValueError, match="unknown segmenter"):
-        build_segmenter("nope", settings, None)
-
-
-# -- naive / chunking -----------------------------------------------------
-
-
-def test_naive_and_whole_document_segmenters(settings, sample_doc):
-    naive = NaiveParagraphSegmenter().segment(sample_doc)
+def test_whole_document_segmenter_produces_one_segment(settings, sample_doc):
     whole = WholeDocumentSegmenter().segment(sample_doc)
     assert len(whole.segments) == 1
-    assert len(naive.segments) == len(sample_doc.blocks)
-    check_invariants(sample_doc, naive.segments, settings)
     check_invariants(sample_doc, whole.segments, settings)
 
 

@@ -37,9 +37,6 @@ def _settings(
     experiment: list[str] | None,
     source: str | None,
     target: str | None,
-    strategy: str | None = None,
-    segmenter: str | None = None,
-    edges: str | None = None,
     model: str | None = None,
     provider: str | None = None,
 ) -> Settings:
@@ -50,12 +47,6 @@ def _settings(
             overrides["langs"]["source"] = source
         if target:
             overrides["langs"]["target"] = target
-    if strategy:
-        overrides.setdefault("translation", {})["strategy"] = strategy
-    if segmenter:
-        overrides.setdefault("segmentation", {})["segmenter"] = segmenter
-    if edges:
-        overrides.setdefault("graph", {})["edge_inferrer"] = edges
     if model:
         overrides.setdefault("llm", {})["model"] = model
     if provider:
@@ -136,7 +127,6 @@ def eval(
 
 @app.command()
 def translate(
-    strategy: str = typer.Option("B1", "--strategy", help="B0, B1 or B2."),
     config: str | None = typer.Option(None, "--config"),
     experiment: list[str] | None = typer.Option(None, "--experiment"),
     data: str | None = typer.Option(None, "--data", help="Parallel data directory."),
@@ -149,15 +139,13 @@ def translate(
     dry_run: bool = typer.Option(False, "--dry-run"),
     run_id: str | None = typer.Option(None, "--run-id"),
 ) -> None:
-    """Translate documents under one baseline context strategy."""
+    """Translate documents under the B0 (whole-document) condition."""
     from .pipelines.baseline import translate_document, write_document_artifacts
 
-    settings = _settings(
-        config, experiment, source, target, strategy=strategy, model=model, provider=provider
-    )
+    settings = _settings(config, experiment, source, target, model=model, provider=provider)
     pairs = _load_docs(settings, data, portion, max_docs)
     llm = build_llm(settings, dry_run=dry_run)
-    run = RunDir.create(settings, prefix=f"translate-{strategy}", run_id=run_id, dry_run=dry_run)
+    run = RunDir.create(settings, prefix="translate-B0", run_id=run_id, dry_run=dry_run)
 
     hyps, refs, doc_scores, notes = [], [], [], []
     for pair in pairs:
@@ -194,7 +182,6 @@ def translate(
 
 @app.command()
 def compare(
-    strategies: str = typer.Option("B0,B1,B2", "--strategies"),
     config: str | None = typer.Option(None, "--config"),
     experiment: list[str] | None = typer.Option(None, "--experiment"),
     data: str | None = typer.Option(None, "--data"),
@@ -207,27 +194,25 @@ def compare(
     dry_run: bool = typer.Option(False, "--dry-run"),
     run_id: str | None = typer.Option(None, "--run-id"),
 ) -> None:
-    """Run several strategies on the same documents and tabulate them."""
+    """Run the B0 condition on the same documents and tabulate it."""
     from .pipelines.compare import run_comparison
 
     settings = _settings(config, experiment, source, target, model=model, provider=provider)
-    names = [s.strip() for s in strategies.split(",") if s.strip()]
     pairs = _load_docs(settings, data, portion, max_docs)
     llm = build_llm(settings, dry_run=dry_run)
     run = RunDir.create(settings, prefix="compare", run_id=run_id, dry_run=dry_run)
 
-    payload = run_comparison(names, pairs, settings, llm, run)
+    payload = run_comparison(pairs, settings, llm, run)
     for cond in payload["conditions"]:
         typer.echo(
             f"{cond['name']:<20} chrF++ {cond['chrf']:<8} BLEU {cond['bleu']:<8} "
-            f"calls {cond['calls']:<5} USD(cold) {cond['cost_usd_cold']}"
+            f"calls {cond['calls']:<5}"
         )
     typer.echo(f"Table: {run.path / 'comparison.md'}")
 
 
 @app.command()
 def segment(
-    segmenter: str = typer.Option("structural", "--segmenter", help="structural or graft."),
     config: str | None = typer.Option(None, "--config"),
     experiment: list[str] | None = typer.Option(None, "--experiment"),
     data: str | None = typer.Option(None, "--data"),
@@ -240,18 +225,16 @@ def segment(
     dry_run: bool = typer.Option(False, "--dry-run"),
     run_id: str | None = typer.Option(None, "--run-id"),
 ) -> None:
-    """Segment documents and score against gold when it exists."""
+    """Segment documents with GRAFT and score against gold when it exists."""
     from .pipelines.segment_pipeline import run_segmentation
 
-    settings = _settings(
-        config, experiment, source, target, segmenter=segmenter, model=model, provider=provider
-    )
+    settings = _settings(config, experiment, source, target, model=model, provider=provider)
     pairs = _load_docs(settings, data, portion, max_docs)
-    llm = build_llm(settings, dry_run=dry_run) if segmenter == "graft" else None
-    run = RunDir.create(settings, prefix=f"segment-{segmenter}", run_id=run_id, dry_run=dry_run)
+    llm = build_llm(settings, dry_run=dry_run)
+    run = RunDir.create(settings, prefix="segment-graft", run_id=run_id, dry_run=dry_run)
 
     extra = run_segmentation(pairs, settings, llm, run)
-    write_report(run, settings, [], None, llm.ledger if llm else None, extra=extra)
+    write_report(run, settings, [], None, llm.ledger, extra=extra)
     stats = extra["segmentation_stats"]
     typer.echo(
         f"{stats['n_documents']} documents, {stats['n_segments_total']} segments, "
@@ -262,46 +245,28 @@ def segment(
 
 @app.command("build-graph")
 def build_graph(
-    edges: str = typer.Option(
-        "graft", "--edges", help="graft, predecessor, tfidf or none."
-    ),
     config: str | None = typer.Option(None, "--config"),
     experiment: list[str] | None = typer.Option(None, "--experiment"),
     data: str | None = typer.Option(None, "--data"),
     portion: str = typer.Option("dev", "--portion"),
     source: str | None = typer.Option(None, "--source"),
     target: str | None = typer.Option(None, "--target"),
-    segmenter: str | None = typer.Option(None, "--segmenter"),
     model: str | None = typer.Option(None, "--model"),
     provider: str | None = typer.Option(None, "--provider"),
     max_docs: int | None = typer.Option(None, "--max-docs"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     run_id: str | None = typer.Option(None, "--run-id"),
 ) -> None:
-    """Build a discourse graph per document and score against gold when it exists."""
+    """Build a discourse graph per document with GRAFT and score against gold when it exists."""
     from .pipelines.graph_pipeline import run_graph_build
 
-    settings = _settings(
-        config,
-        experiment,
-        source,
-        target,
-        segmenter=segmenter,
-        edges=edges,
-        model=model,
-        provider=provider,
-    )
+    settings = _settings(config, experiment, source, target, model=model, provider=provider)
     pairs = _load_docs(settings, data, portion, max_docs)
-    # Only the LLM-backed inferrers and the graft segmenter need a client; the
-    # deterministic ones must stay runnable with no credentials at all.
-    needs_llm = (
-        settings.graph.edge_inferrer == "graft" or settings.segmentation.segmenter == "graft"
-    )
-    llm = build_llm(settings, dry_run=dry_run) if needs_llm else None
-    run = RunDir.create(settings, prefix=f"graph-{edges}", run_id=run_id, dry_run=dry_run)
+    llm = build_llm(settings, dry_run=dry_run)
+    run = RunDir.create(settings, prefix="graph-graft", run_id=run_id, dry_run=dry_run)
 
     extra = run_graph_build(pairs, settings, llm, run)
-    write_report(run, settings, [], None, llm.ledger if llm else None, extra=extra)
+    write_report(run, settings, [], None, llm.ledger, extra=extra)
 
     stats = extra["graph_stats"]
     typer.echo(

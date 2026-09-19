@@ -25,8 +25,8 @@ from ..evaluation.edge_score import (
     score_edges,
 )
 from ..graph.assemble import assemble_graph
-from ..graph.edge_inference import build_edge_inferrer
 from ..graph.export import write_graphml, write_json, write_mermaid
+from ..graph.graft_edges import GraftPairwiseEdgeInferrer
 from ..graph.stats import aggregate_graph_stats, graph_stats
 from ..graph.structural_edges import infer_structural_edges
 from ..io.parallel import DocPair
@@ -45,12 +45,10 @@ class DocumentGraph:
     stats: dict[str, Any] = field(default_factory=dict)
 
 
-def build_document_graph(
-    pair: DocPair, settings: Settings, llm: CachedLLM | None = None
-) -> DocumentGraph:
+def build_document_graph(pair: DocPair, settings: Settings, llm: CachedLLM) -> DocumentGraph:
     """Segment one document and build its discourse graph."""
     seg = segment_document(pair, settings, llm)
-    inferrer = build_edge_inferrer(settings.graph.edge_inferrer, settings, llm)
+    inferrer = GraftPairwiseEdgeInferrer(settings, llm)
 
     structural = infer_structural_edges(seg.document, seg.segments)
     inferred = inferrer.infer(seg.segments)
@@ -66,7 +64,7 @@ def build_document_graph(
     stats = graph_stats(graph)
     stats.update(
         {
-            "edge_inferrer": settings.graph.edge_inferrer,
+            "edge_inferrer": inferrer.name,
             "segmenter": seg.stats.get("segmenter"),
             "n_structural_proposed": len(structural),
             "n_inferred_proposed": len(inferred.edges),
@@ -100,7 +98,7 @@ def score_against_gold(doc: DocumentGraph, settings: Settings) -> EdgeScore | No
 def run_graph_build(
     pairs: list[DocPair],
     settings: Settings,
-    llm: CachedLLM | None,
+    llm: CachedLLM,
     run: RunDir,
 ) -> dict[str, Any]:
     """Build a graph for every document, score where possible, write artifacts."""

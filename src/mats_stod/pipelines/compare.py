@@ -1,9 +1,8 @@
-"""Strategy comparison.
+"""B0 condition run, scored and tabulated.
 
-Runs several conditions over the same documents with the same model and the
-same prompt, and puts the numbers in one table. Anything that differs between
-conditions other than the context strategy is a confound, so the loop builds
-each condition from the same `Settings` object with only the strategy changed.
+Kept as its own pipeline (rather than folded into `baseline.py`) so a future
+condition can be added here and compared against B0 without touching the
+single-condition `translate` command.
 """
 
 from __future__ import annotations
@@ -17,8 +16,8 @@ from ..evaluation.report import _table, models_used
 from ..io.parallel import DocPair
 from ..io.runs import RunDir
 from ..llm.client import CachedLLM
-from ..llm.cost import CostLedger
-from ..translation.context import build_strategy
+from ..llm.ledger import CallLedger
+from ..translation.context import B0FullDocument
 from .baseline import translate_document, write_document_artifacts
 
 
@@ -32,27 +31,22 @@ class ConditionResult:
     cache_hits: int
     tokens_in: int
     tokens_out: int
-    cost_usd_cold: float
-    cost_usd_billed: float
     latency_s: float
     flagged_segments: int
     notes: list[str] = field(default_factory=list)
 
 
 def run_condition(
-    strategy_name: str,
     pairs: list[DocPair],
     settings: Settings,
     llm: CachedLLM,
     run: RunDir,
 ) -> ConditionResult:
-    """Run one condition and score it."""
-    strat_settings = settings.model_copy(deep=True)
-    strat_settings.translation.strategy = strategy_name
-    strategy = build_strategy(strategy_name, strat_settings)
+    """Run the B0 condition and score it."""
+    strategy = B0FullDocument(settings)
 
-    # A fresh ledger per condition so cost is attributed correctly even though
-    # the conditions share one cache.
+    # A fresh ledger slice so this condition's counts are attributed correctly
+    # even though it shares the run's cache with anything else in the run.
     before = len(llm.ledger.calls)
 
     hyps: list[str] = []
@@ -62,9 +56,9 @@ def run_condition(
     flagged = 0
 
     for pair in pairs:
-        result = translate_document(pair, strat_settings, llm, strategy)
+        result = translate_document(pair, settings, llm)
         sub = run.subdir(f"conditions/{strategy.name}")
-        cond_run = RunDir(sub, strat_settings, dry_run=run.dry_run)
+        cond_run = RunDir(sub, settings, dry_run=run.dry_run)
         write_document_artifacts(cond_run, result)
         hyps.append(result.output_text)
         refs.append(result.reference_text)
@@ -77,10 +71,7 @@ def run_condition(
         flagged += int(result.stats.get("n_flagged_segments", 0))
 
     corpus = score_corpus(hyps, refs, settings.evaluation)
-    slice_ledger = CostLedger(
-        prices_usd_per_mtok=settings.llm.prices_usd_per_mtok,
-        calls=llm.ledger.calls[before:],
-    )
+    slice_ledger = CallLedger(calls=llm.ledger.calls[before:])
 
     return ConditionResult(
         name=strategy.name,
@@ -91,8 +82,6 @@ def run_condition(
         cache_hits=slice_ledger.n_cached,
         tokens_in=slice_ledger.tokens_in_total,
         tokens_out=slice_ledger.tokens_out_total,
-        cost_usd_cold=round(slice_ledger.cost_usd_cold, 6),
-        cost_usd_billed=round(slice_ledger.cost_usd_billed, 6),
         latency_s=round(slice_ledger.latency_s_total, 2),
         flagged_segments=flagged,
         notes=notes,
@@ -111,7 +100,6 @@ def render_comparison(
             r.cache_hits,
             r.tokens_in,
             r.tokens_out,
-            r.cost_usd_cold,
             r.latency_s,
             r.flagged_segments,
         ]
@@ -126,14 +114,13 @@ def render_comparison(
             "cached",
             "tokens in",
             "tokens out",
-            "USD cold",
             "latency s",
             "flagged",
         ],
         rows,
     )
     lines = [
-        f"# Strategy comparison ({settings.langs.direction})\n",
+        f"# Condition results ({settings.langs.direction})\n",
         f"Model: {model or settings.llm.model}. "
         f"Prompt: {settings.translation.prompt_version}. "
         f"Documents: {results[0].n_docs if results else 0}.\n",
@@ -148,13 +135,12 @@ def render_comparison(
 
 
 def run_comparison(
-    strategies: list[str],
     pairs: list[DocPair],
     settings: Settings,
     llm: CachedLLM,
     run: RunDir,
 ) -> dict[str, Any]:
-    results = [run_condition(name, pairs, settings, llm, run) for name in strategies]
+    results = [run_condition(pairs, settings, llm, run)]
     # The model that was actually called, not the one named in config; with
     # `--provider fake` those differ and the table must not claim otherwise.
     model = models_used(llm.ledger)
