@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import json
 import unicodedata
+
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from mats_stod.io.parallel import load_parallel
 from mats_stod.io.text import ZWJ, normalise
 from mats_stod.llm.factory import build_llm
-from mats_stod.llm.fake import FakeLLM
+from mats_stod.llm.fake import EchoLLM, FakeLLM
 from mats_stod.parsing.plaintext import PlainTextParser
-from mats_stod.pipelines.baseline import translate_document
+from mats_stod.pipelines.dag_translate import translate_document
 from mats_stod.schemas import DiscourseGraph
 from mats_stod.segmentation.graft_discourse import GraftDiscourseSegmenter
 
@@ -49,19 +50,15 @@ def test_zwj_survives_parse_and_segment(sample_text, settings):
 def test_zwj_survives_the_whole_translation_pipeline(settings, tmp_path):
     """A ZWJ present in the source is present in the output document.
 
-    The fake model echoes the source, so any loss would be the pipeline's
-    doing rather than the model's.
+    EchoLLM answers every segmentation/edge decision "no" and echoes the
+    source back for translation, so any loss would be the DAG pipeline's
+    doing (segmentation, graph assembly, context masking, reassembly)
+    rather than the model's.
     """
-
-    def echo(messages, params):
-        prompt = messages[-1].content
-        body = prompt.split("Source text", 1)[1].split(":", 1)[1]
-        body = body.split("Return a JSON", 1)[0].strip()
-        return json.dumps({"translation": body}, ensure_ascii=False)
-
     settings.llm.use_cache = False
     pair = load_parallel("data/samples", "si", "ta", doc_ids=["circular_01"])[0]
-    llm = build_llm(settings, provider=FakeLLM(responder=echo))
-    result = translate_document(pair, settings, llm)
+    llm = build_llm(settings, provider=EchoLLM())
+    with SqliteSaver.from_conn_string(str(tmp_path / "checkpoints.sqlite")) as checkpointer:
+        result = translate_document(pair, settings, llm, checkpointer)
     assert result.output_text.count(ZWJ) == pair.source_text.count(ZWJ)
     assert ZWJ in result.output_text

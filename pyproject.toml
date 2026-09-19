@@ -13,12 +13,16 @@ dependencies = [
     "sacrebleu>=2.4",
     "networkx>=3.2",
     "scikit-learn>=1.4",
+    # The DAG translation condition is the only translation pipeline; it
+    # orchestrates per-segment nodes over the discourse graph with LangGraph
+    # and checkpoints progress to SQLite (see DECISIONS.md D25).
+    "langgraph>=0.2",
+    "langgraph-checkpoint-sqlite>=2.0",
 ]
 
 [project.optional-dependencies]
 gemini = ["google-genai>=1.0"]
 openai = ["openai>=1.30"]
-graph = ["langgraph>=0.2", "langgraph-checkpoint-sqlite>=2.0"]
 
 [project.scripts]
 # main() wraps app() so expected conditions, such as a dry run finding

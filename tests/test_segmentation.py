@@ -1,4 +1,4 @@
-"""GRAFT segmentation, whole-document/chunk segmentation, and the invariants on every document."""
+"""GRAFT segmentation, and the invariants on every document."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from mats_stod.llm.fake import FakeLLM
 from mats_stod.parsing.base import build_parser
 from mats_stod.schemas import DiscourseGraph
 from mats_stod.segmentation.graft_discourse import GraftDiscourseSegmenter
-from mats_stod.segmentation.naive import WholeDocumentSegmenter, chunk_document
 
 
 def check_invariants(doc, segments, settings):
@@ -99,21 +98,6 @@ def test_graft_atomic_blocks_are_never_merged(settings, sample_doc):
     assert result.segments[0].seg_type == "heading"
     assert result.segments[0].block_ids == [doc.blocks[0].block_id]
     check_invariants(doc, result.segments, settings)
-
-
-# -- whole-document / chunking (used by B0) --------------------------------
-
-
-def test_whole_document_segmenter_produces_one_segment(settings, sample_doc):
-    whole = WholeDocumentSegmenter().segment(sample_doc)
-    assert len(whole.segments) == 1
-    check_invariants(sample_doc, whole.segments, settings)
-
-
-def test_chunking_respects_the_character_budget(settings, sample_doc):
-    result = chunk_document(sample_doc, max_chars=150)
-    assert len(result.segments) > 1
-    check_invariants(sample_doc, result.segments, settings)
 
 
 # -- thinking budget ------------------------------------------------------

@@ -756,6 +756,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
+    { name = "langgraph" },
+    { name = "langgraph-checkpoint-sqlite" },
     { name = "networkx" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -768,10 +770,6 @@ dependencies = [
 [package.optional-dependencies]
 gemini = [
     { name = "google-genai" },
-]
-graph = [
-    { name = "langgraph" },
-    { name = "langgraph-checkpoint-sqlite" },
 ]
 openai = [
     { name = "openai" },
@@ -787,8 +785,8 @@ dev = [
 requires-dist = [
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.0" },
     { name = "jinja2", specifier = ">=3.1" },
-    { name = "langgraph", marker = "extra == 'graph'", specifier = ">=0.2" },
-    { name = "langgraph-checkpoint-sqlite", marker = "extra == 'graph'", specifier = ">=2.0" },
+    { name = "langgraph", specifier = ">=0.2" },
+    { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0" },
     { name = "networkx", specifier = ">=3.2" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.30" },
     { name = "pydantic", specifier = ">=2.7" },
@@ -798,7 +796,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.4" },
     { name = "typer", specifier = ">=0.12" },
 ]
-provides-extras = ["gemini", "openai", "graph"]
+provides-extras = ["gemini", "openai"]
 
 [package.metadata.requires-dev]
 dev = [

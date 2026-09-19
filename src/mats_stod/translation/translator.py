@@ -17,6 +17,7 @@ from ..prompts.registry import render
 from ..schemas import Segment, TranslationRecord
 from . import protect
 from .context import ContextBlock
+from .linebreaks import LINEBREAK_TOKEN, mask_linebreaks, unmask_linebreaks
 
 #: Structured-output schema. Providers that support it are constrained; the
 #: others still see the instruction in the prompt.
@@ -42,6 +43,7 @@ class Translator:
             domain_note=self.settings.translation.domain_note,
             context_block=context.text,
             segment=source_text,
+            linebreak_token=LINEBREAK_TOKEN,
         )
 
     def translate_segment(
@@ -50,10 +52,16 @@ class Translator:
         context: ContextBlock,
         strategy_name: str,
     ) -> TranslationRecord:
-        prompt = self.build_prompt(segment.text, context)
+        # Newlines inside the segment (paragraph breaks, letter-header lines,
+        # list rows) survive as literal characters up to this point, but a
+        # model asked to translate and return JSON has no reason to keep them
+        # in place. Masking them as an opaque token round-trips them intact
+        # instead of relying on the model's judgement.
+        prompt = self.build_prompt(mask_linebreaks(segment.text), context)
         started = time.perf_counter()
         text, tokens_in, tokens_out, cached, parse_flags = self._call_with_retry(prompt)
         elapsed = time.perf_counter() - started
+        text = unmask_linebreaks(text)
 
         flags = list(parse_flags)
         report = protect.check(segment.text, text, self.settings.translation.protect)

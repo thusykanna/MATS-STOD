@@ -1,18 +1,19 @@
-"""Context strategies.
+"""The DAG-context translation condition's context strategy.
 
-A strategy decides two things: the order segments are translated in, and what
-each one is shown alongside its own text. Everything else about a translation
-run is held constant, so a difference between conditions is attributable to
-context and nothing else. The DAG strategies (D1, D2) land here later and
-implement the same interface.
+A segment's context is its parents in the discourse graph
+(`DiscourseGraph.ancestors`), rendered as source/translation pairs so that
+consistency ties back to how earlier segments were actually rendered, not
+just what they said. Nearest ancestors are kept when the token budget is
+tight, because the nearest context is the most likely to carry the pronoun or
+term the current segment depends on.
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from ..config import Settings
+from ..io.text import estimate_tokens
 from ..schemas import Segment, TranslationRecord
 
 
@@ -25,56 +26,51 @@ class ContextBlock:
     truncated: bool = False
 
 
-@dataclass
-class TranslationState:
-    """What has been produced so far in this document."""
+def _pair_lines(
+    seg_ids: list[str],
+    segments_by_id: dict[str, Segment],
+    records: dict[str, TranslationRecord],
+) -> list[str]:
+    """Render ancestor segments as source/translation pairs.
 
-    segments: list[Segment]
-    records: dict[str, TranslationRecord] = field(default_factory=dict)
-
-    def by_id(self, seg_id: str) -> Segment:
-        for s in self.segments:
-            if s.seg_id == seg_id:
-                return s
-        raise KeyError(seg_id)
-
-    def translated(self, seg_id: str) -> str | None:
-        rec = self.records.get(seg_id)
-        return rec.target_text if rec else None
-
-
-class ContextStrategy(ABC):
-    """Interface shared by every experiment condition."""
-
-    name: str = "base"
-    #: Whether this strategy needs a discourse graph. Baselines do not.
-    needs_graph: bool = False
-
-    def __init__(self, settings: Settings) -> None:
-        self.settings = settings
-
-    @abstractmethod
-    def order(self, state: TranslationState) -> list[str]:
-        """Segment ids in the order they must be translated."""
-
-    @abstractmethod
-    def build_context(self, seg_id: str, state: TranslationState) -> ContextBlock:
-        """The context block shown with `seg_id`."""
-
-
-class B0FullDocument(ContextStrategy):
-    """Whole document in one prompt.
-
-    The document is the unit of translation, so there is no context block: the
-    model sees everything at once. When the document exceeds the configured
-    token limit it is cut into fixed chunks, and that fallback is recorded,
-    because a B0 that silently became chunked is a different condition.
+    The translation is included when available, because consistency is the
+    thing context is supposed to buy: showing only the source tells the model
+    what was said, not how it was rendered.
     """
+    lines: list[str] = []
+    for sid in seg_ids:
+        seg = segments_by_id[sid]
+        lines.append(f"[{seg.order}] source: {seg.text}")
+        rec = records.get(sid)
+        if rec is not None:
+            lines.append(f"[{seg.order}] translation: {rec.target_text}")
+    return lines
 
-    name = "B0_full_document"
 
-    def order(self, state: TranslationState) -> list[str]:
-        return [s.seg_id for s in sorted(state.segments, key=lambda s: s.order)]
+def build_dag_context(
+    parent_ids: list[str],
+    segments_by_id: dict[str, Segment],
+    records: dict[str, TranslationRecord],
+    settings: Settings,
+) -> ContextBlock:
+    """The context block for a segment: its discourse-graph ancestors.
 
-    def build_context(self, seg_id: str, state: TranslationState) -> ContextBlock:
+    `parent_ids` is expected in ascending reading order (as
+    `DiscourseGraph.parents`/`ancestors` return it), so dropping from the
+    front drops the furthest-back ancestor first until the block fits the
+    token budget.
+    """
+    if not parent_ids:
         return ContextBlock(text="", seg_ids=[])
+
+    budget = settings.translation.context_token_budget
+    cpt = settings.translation.chars_per_token_estimate
+    kept = list(parent_ids)
+    truncated = False
+    while kept:
+        text = "\n".join(_pair_lines(kept, segments_by_id, records))
+        if estimate_tokens(text, cpt) <= budget:
+            return ContextBlock(text=text, seg_ids=kept, truncated=truncated)
+        kept.pop(0)
+        truncated = True
+    return ContextBlock(text="", seg_ids=[], truncated=truncated)

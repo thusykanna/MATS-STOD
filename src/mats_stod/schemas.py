@@ -199,7 +199,7 @@ class DiscourseGraph(BaseModel):
 
         Depth is bounded because the context budget is bounded; an unbounded
         walk on a dense graph pulls in the whole document and silently turns
-        D1 into B0.
+        D1's graph-scoped context into whole-document context by another name.
         """
         if max_depth < 1:
             return []

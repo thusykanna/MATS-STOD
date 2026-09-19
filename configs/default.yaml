@@ -58,9 +58,8 @@ graph:
 translation:
   prompt_version: translate_v1
   domain_note: "Official government document. Formal register. Preserve numbers, dates and reference codes exactly."
-  full_doc_token_limit: 12000
-  chunk_token_size: 4000
   chars_per_token_estimate: 2.5
+  context_token_budget: 2000
   dag_context_depth: 2
   retry_on_parse_failure: 1
   protect:

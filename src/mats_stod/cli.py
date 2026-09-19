@@ -139,27 +139,33 @@ def translate(
     dry_run: bool = typer.Option(False, "--dry-run"),
     run_id: str | None = typer.Option(None, "--run-id"),
 ) -> None:
-    """Translate documents under the B0 (whole-document) condition."""
-    from .pipelines.baseline import translate_document, write_document_artifacts
+    """Translate documents under the DAG-context condition (D1)."""
+    from langgraph.checkpoint.sqlite import SqliteSaver
+
+    from .pipelines.dag_translate import (
+        checkpoint_path,
+        translate_document,
+        write_document_artifacts,
+    )
 
     settings = _settings(config, experiment, source, target, model=model, provider=provider)
     pairs = _load_docs(settings, data, portion, max_docs)
     llm = build_llm(settings, dry_run=dry_run)
-    run = RunDir.create(settings, prefix="translate-B0", run_id=run_id, dry_run=dry_run)
+    run = RunDir.create(settings, prefix="translate-dag", run_id=run_id, dry_run=dry_run)
 
-    hyps, refs, doc_scores, notes = [], [], [], []
-    for pair in pairs:
-        result = translate_document(pair, settings, llm)
-        write_document_artifacts(run, result)
-        hyps.append(result.output_text)
-        refs.append(result.reference_text)
-        doc_scores.append(
-            score_document(
-                pair.doc_id, result.output_text, pair.reference_text, settings.evaluation
+    hyps, refs, doc_scores = [], [], []
+    with SqliteSaver.from_conn_string(str(checkpoint_path(run))) as checkpointer:
+        for pair in pairs:
+            result = translate_document(pair, settings, llm, checkpointer)
+            write_document_artifacts(run, result)
+            hyps.append(result.output_text)
+            refs.append(result.reference_text)
+            doc_scores.append(
+                score_document(
+                    pair.doc_id, result.output_text, pair.reference_text, settings.evaluation
+                )
             )
-        )
-        notes.extend(result.notes)
-        run.log("translated", doc_id=pair.doc_id, segments=len(result.segments))
+            run.log("translated", doc_id=pair.doc_id, segments=len(result.segments))
 
     corpus = score_corpus(hyps, refs, settings.evaluation)
     flagged = [
@@ -174,7 +180,7 @@ def translate(
         doc_scores,
         corpus,
         llm.ledger,
-        extra={"notes": notes, "flagged_segments": flagged},
+        extra={"flagged_segments": flagged},
     )
     typer.echo(f"chrF++ {corpus.chrf}  BLEU {corpus.bleu}  documents {corpus.n_docs}")
     typer.echo(f"Report: {run.path / 'report.md'}")
@@ -194,7 +200,7 @@ def compare(
     dry_run: bool = typer.Option(False, "--dry-run"),
     run_id: str | None = typer.Option(None, "--run-id"),
 ) -> None:
-    """Run the B0 condition on the same documents and tabulate it."""
+    """Run the DAG-context condition on the same documents and tabulate it."""
     from .pipelines.compare import run_comparison
 
     settings = _settings(config, experiment, source, target, model=model, provider=provider)

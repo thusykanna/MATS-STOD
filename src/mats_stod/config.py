@@ -166,12 +166,15 @@ class ProtectSettings(BaseModel):
 class TranslationSettings(BaseModel):
     prompt_version: str = "translate_v1"
     domain_note: str = "Official government document. Formal register."
-    #: B0 falls back to fixed chunks above this; recorded when it happens.
-    full_doc_token_limit: int = 12000
-    chunk_token_size: int = 4000
     #: Rough characters-per-token for Sinhala/Tamil used only for budgeting
     #: decisions, never for reported token counts.
     chars_per_token_estimate: float = 2.5
+    #: Token budget for the context shown alongside a segment. The furthest
+    #: (earliest-order) ancestor is dropped first until the rendered context
+    #: fits.
+    context_token_budget: int = 2000
+    #: How many hops up the discourse graph's parent edges a segment's
+    #: context reaches (DiscourseGraph.ancestors' max_depth).
     dag_context_depth: int = 2
     retry_on_parse_failure: int = 1
     protect: ProtectSettings = Field(default_factory=ProtectSettings)

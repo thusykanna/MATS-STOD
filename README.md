@@ -15,10 +15,10 @@ Translation*, EMNLP 2025 Industry Track, [arXiv
 | Stage | What it covers | State |
 |---|---|---|
 | M0 | Scaffold, schemas, LLM cache, call ledger, metrics, reports | Done |
-| M1 | Baseline translation: B0 (whole document) | Done |
+| M1 | DAG-context translation (D1), orchestrated with LangGraph | Done |
 | M2 | Segmentation: GRAFT discourse agent | Done |
 | M3 | Edge inference (GRAFT) and DAG assembly | Done |
-| M4 | DAG-context translation and the ablation | Not started |
+| M4 | An ablation comparing `dag_context_depth` and graph settings | Not started |
 
 Both translation directions are supported everywhere: `si→ta` and `ta→si`.
 
@@ -34,7 +34,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 git clone <this-repo> && cd MATS-STOD
 uv sync --dev          # Python, dependencies and test tooling
-uv run pytest          # 207 pass, 1 skipped, offline, ~2s
+uv run pytest          # 212 pass, 1 skipped, offline, ~2s
 ```
 
 That is the whole setup for everything except calling a real model. No Google
@@ -194,8 +194,8 @@ Budget controls, available on every command:
 
 | Command | Purpose |
 |---|---|
-| `translate` | Translate under the B0 (whole-document) condition |
-| `compare` | Run the B0 condition, write a results table |
+| `translate` | Translate under the DAG-context condition (D1) |
+| `compare` | Run the DAG-context condition, write a results table |
 | `segment` | Segment with GRAFT and score against gold |
 | `build-graph` | Build the discourse graph with GRAFT, score against gold |
 | `eval --hyp DIR --ref DIR` | Score two directories of `.txt` files |
@@ -217,14 +217,26 @@ uv run mats-stod translate --source ta --target si
 uv run mats-stod translate --experiment configs/experiments/cap_4.yaml
 ```
 
-## The B0 condition
+## The DAG-context condition (D1)
 
-`translate` and `compare` currently run one condition: `B0_full_document`, the
-whole document in a single prompt (one call, or one per chunk if it exceeds
-the token limit). A B0 run that had to fall back to chunks records that fact
-in its report, because a chunked B0 is no longer B0. Other context strategies
-(a sliding window, DAG-based context) are a later comparison, not part of this
-initial stage.
+`translate` and `compare` run one condition: `D1_dag_context`. A document is
+segmented with GRAFT, its discourse graph is built exactly as `build-graph`
+builds it, and translation then runs as a LangGraph state graph whose nodes
+and edges mirror that discourse graph one for one: a segment's node fires
+only once every segment it depends on has already been translated, and
+receives those translations as its context (`translation.dag_context_depth`
+hops up the graph's parent edges, budgeted by `translation.context_token_budget`).
+Segments with no dependency relationship between them fall into the same
+LangGraph superstep and translate concurrently.
+
+LangGraph is used only here (DECISIONS.md D25): progress is checkpointed to
+`checkpoints.sqlite` inside the run directory, keyed by document, so a run
+interrupted partway through resumes from its last completed segment when
+re-invoked with the same `--run-id` rather than re-translating the document.
+
+An ablation over `dag_context_depth`, `graph.max_parents` and
+`graph.transitive_reduction` is the natural next comparison and is not part
+of this stage (see M4 in Status).
 
 ## Segmentation
 
@@ -311,8 +323,9 @@ src/mats_stod/
   prompts/          versioned .jinja templates, never inline strings
   parsing/          LayoutParser interface, PlainTextParser, deferred stubs
   segmentation/     sentence splitter, GRAFT discourse segmenter
-  translation/      context strategies, translator, protected-content checks
+  graph/            structural + GRAFT pairwise edges, assembly, export
+  translation/      graph-derived context, translator, line-break masking, protected-content checks
   evaluation/       metrics, segmentation scorer, reports, annotation helper
-  pipelines/        baseline, comparison, segmentation
+  pipelines/        DAG translation (LangGraph), graph building, segmentation, comparison
 runs/               run outputs (not committed)
 ```

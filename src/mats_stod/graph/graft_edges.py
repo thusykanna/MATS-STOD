@@ -106,8 +106,10 @@ class GraftPairwiseEdgeInferrer(EdgeInferrer):
                 "decisions_yes": yes_count,
                 "decisions_unparsed": unparsed,
                 # The share of pairs answered "yes" decides how dense the graph
-                # is, and a dense graph collapses D1 toward B0. It is reported
-                # on every run so that finding arrives before M4 is designed.
+                # is, and a dense graph gives every segment near-whole-document
+                # context, eroding what a bounded discourse-graph context (D1)
+                # is meant to buy over that. Reported on every run so the
+                # finding arrives before the ablation (M4) is designed.
                 "yes_rate": round(yes_count / len(pairs), 4) if pairs else 0.0,
                 "n_predecessor_edges": n - 1,
                 "prompt_version": self.graph_settings.prompt_version,

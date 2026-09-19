@@ -266,6 +266,10 @@ under its own feet.
 to keep the initial implementation stage to GRAFT only; `NaiveParagraphSegmenter`
 went with them. Only B0 (whole document) remains. This decision's reasoning
 still applies and should be reinstated if B1/B2 return for comparison.
+**Status update (2026-09-20).** B0 was also removed (see D32): there is no
+baseline condition left in the codebase at all, only D1. This decision's
+reasoning is dormant, not void, and applies again to whichever baseline is
+reintroduced as the ablation's control.
 
 ### D25. LangGraph is not used in Phase A or in segmentation
 
@@ -275,6 +279,10 @@ checkpointing.
 *Alternative rejected.* Building everything as graphs for uniformity.
 **Reason.** A loop over paragraphs has no branching. Wrapping it in a state
 machine would add a dependency and explain nothing.
+**Status update (2026-09-20).** The DAG translation pipeline now exists
+(D32) and follows this decision as written: a `StateGraph` with one node per
+segment, wired from the discourse graph's own edges, checkpointed to SQLite.
+Segmentation and edge inference remain plain functions, unchanged.
 
 ### D26. Sentence splitting is rule-based with an abbreviation lookahead
 
@@ -342,7 +350,49 @@ would also have supplied, so removing them changes what D1 is being credited
 for. It is a legitimate ablation and a genuine help when reading a diagram,
 but it is not tidying, so it is not the default.
 
-## Deferred, with the consequence recorded
+### D32. B0 is removed; D1 (DAG-context translation) is the only translation condition
+
+**Decision.** `WholeDocumentSegmenter`, `B0FullDocument`, `chunk_document` and
+`pipelines/baseline.py` are deleted rather than kept alongside D1.
+`pipelines/dag_translate.py` segments with GRAFT, builds the discourse graph
+exactly as `build-graph` does, and translates it as a LangGraph `StateGraph`
+with one node per segment, wired from the graph's own edges (D25): a node
+fires once every segment it depends on has translated, receiving those
+translations as context (`translation.dag_context_depth` hops up
+`DiscourseGraph.ancestors`, budgeted by `translation.context_token_budget`,
+in `translation.context.build_dag_context`). Independent segments fall into
+the same superstep and translate concurrently. Progress checkpoints to
+`checkpoints.sqlite` in the run directory, keyed by document, so a run
+resumed with the same `--run-id` does not re-translate completed segments.
+*Alternative rejected.* Keeping B0 running alongside D1 as the ablation's
+control, per M4's original framing ("DAG-context translation and the
+ablation").
+**Reason.** Explicit project decision: a baseline kept only for a future
+comparison, with no comparison yet run, is unused code paid for on every
+change to `Segment`, `TranslationRecord` or the translation prompt. D24's
+reasoning for a baseline stays valid and is recorded there as dormant; it
+reactivates once an ablation actually needs a control to run against, at
+which point a baseline is added back deliberately rather than dragged along
+speculatively.
+**Consequence, which must be stated in any report:** there is currently no
+in-repo comparison point for whether D1's graph-scoped context beats
+translating each segment alone or beats a whole-document prompt. Numbers
+from D1 are reported on their own until M4 reintroduces a control.
+
+### D33. Resuming a LangGraph thread requires invoking it with `None`, not a fresh initial state
+
+**Decision.** `dag_translate.translate_document` checks
+`checkpointer.get_tuple(config)` before invoking: an existing checkpoint means
+`app.invoke(None, config=config)`; none means `app.invoke({"records": {}}, config=config)`.
+*Alternative rejected.* Always invoking with `{"records": {}}` and trusting
+the checkpointer to merge it against saved state.
+**Reason.** It does not: `StateGraph.invoke` treats a non-`None` input as a
+new run and starts the thread over, silently discarding the checkpoint and
+re-translating every segment, LLM cache or not. This was caught by measuring
+call counts across a simulated crash-and-resume in a fixed test
+(`test_dag_resumes_from_checkpoint_after_a_crash`) before it could surface as
+a quietly expensive re-run in production; the failure mode produces no error,
+only extra calls, so nothing but a call-count assertion catches it.
 
 ### D28. Layout extraction is deferred
 

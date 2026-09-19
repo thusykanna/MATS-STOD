@@ -178,9 +178,10 @@ def test_the_prompt_carries_both_discourses_and_the_language_names(settings) -> 
 
 
 def test_yes_rate_is_reported_because_a_dense_graph_collapses_d1(settings) -> None:
-    """The share of pairs answered yes decides whether D1 can differ from B0.
+    """The share of pairs answered yes decides how much D1's context differs
+    from translating every segment with no cross-segment context at all.
 
-    Reported on every run so the finding arrives before M4 is designed.
+    Reported on every run so the finding arrives before the ablation (M4) is designed.
     """
     result, _fake, _llm = run(settings, "yes", 6)
     assert result.stats["yes_rate"] == 1.0

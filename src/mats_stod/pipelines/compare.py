@@ -1,14 +1,17 @@
-"""B0 condition run, scored and tabulated.
+"""DAG-context condition run, scored and tabulated.
 
-Kept as its own pipeline (rather than folded into `baseline.py`) so a future
-condition can be added here and compared against B0 without touching the
-single-condition `translate` command.
+Kept as its own pipeline (rather than folded into `dag_translate.py`) so a
+future condition (a different `dag_context_depth`, an ablation on
+`graph.transitive_reduction`) can be added here and compared without
+touching the single-condition `translate` command.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from ..config import Settings
 from ..evaluation.metrics import score_corpus, score_document
@@ -17,8 +20,12 @@ from ..io.parallel import DocPair
 from ..io.runs import RunDir
 from ..llm.client import CachedLLM
 from ..llm.ledger import CallLedger
-from ..translation.context import B0FullDocument
-from .baseline import translate_document, write_document_artifacts
+from .dag_translate import (
+    STRATEGY_NAME,
+    checkpoint_path,
+    translate_document,
+    write_document_artifacts,
+)
 
 
 @dataclass
@@ -42,39 +49,37 @@ def run_condition(
     llm: CachedLLM,
     run: RunDir,
 ) -> ConditionResult:
-    """Run the B0 condition and score it."""
-    strategy = B0FullDocument(settings)
-
+    """Run the DAG-context condition and score it."""
     # A fresh ledger slice so this condition's counts are attributed correctly
     # even though it shares the run's cache with anything else in the run.
     before = len(llm.ledger.calls)
 
+    sub = run.subdir(f"conditions/{STRATEGY_NAME}")
+    cond_run = RunDir(sub, settings, dry_run=run.dry_run)
+
     hyps: list[str] = []
     refs: list[str] = []
     doc_scores = []
-    notes: list[str] = []
     flagged = 0
 
-    for pair in pairs:
-        result = translate_document(pair, settings, llm)
-        sub = run.subdir(f"conditions/{strategy.name}")
-        cond_run = RunDir(sub, settings, dry_run=run.dry_run)
-        write_document_artifacts(cond_run, result)
-        hyps.append(result.output_text)
-        refs.append(result.reference_text)
-        doc_scores.append(
-            score_document(
-                pair.doc_id, result.output_text, pair.reference_text, settings.evaluation
+    with SqliteSaver.from_conn_string(str(checkpoint_path(cond_run))) as checkpointer:
+        for pair in pairs:
+            result = translate_document(pair, settings, llm, checkpointer)
+            write_document_artifacts(cond_run, result)
+            hyps.append(result.output_text)
+            refs.append(result.reference_text)
+            doc_scores.append(
+                score_document(
+                    pair.doc_id, result.output_text, pair.reference_text, settings.evaluation
+                )
             )
-        )
-        notes.extend(result.notes)
-        flagged += int(result.stats.get("n_flagged_segments", 0))
+            flagged += int(result.stats.get("n_flagged_segments", 0))
 
     corpus = score_corpus(hyps, refs, settings.evaluation)
     slice_ledger = CallLedger(calls=llm.ledger.calls[before:])
 
     return ConditionResult(
-        name=strategy.name,
+        name=STRATEGY_NAME,
         chrf=corpus.chrf,
         bleu=corpus.bleu,
         n_docs=len(pairs),
@@ -84,7 +89,7 @@ def run_condition(
         tokens_out=slice_ledger.tokens_out_total,
         latency_s=round(slice_ledger.latency_s_total, 2),
         flagged_segments=flagged,
-        notes=notes,
+        notes=[],
     )
 
 

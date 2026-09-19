@@ -55,13 +55,13 @@ def test_make_split_then_reuse(workspace, tmp_path):
     assert set(split["dev"]) | set(split["test"]) == {"circular_01", "notice_02", "memo_03"}
 
 
-def test_translate_runs_the_b0_condition(workspace, tmp_path):
+def test_translate_runs_the_dag_condition(workspace, tmp_path):
     run(
         "translate", "--config", str(workspace),
         "--provider", "fake", "--data", "data/samples", "--portion", "all",
-        "--max-docs", "1", "--run-id", "t-b0",
+        "--max-docs", "1", "--run-id", "t-dag",
     )
-    results = json.loads((tmp_path / "runs" / "t-b0" / "results.json").read_text())
+    results = json.loads((tmp_path / "runs" / "t-dag" / "results.json").read_text())
     assert results["corpus"]["n_docs"] == 1
     assert results["calls"]["calls"] > 0
 
@@ -86,7 +86,7 @@ def test_compare_produces_one_table(workspace, tmp_path):
         "--max-docs", "1", "--run-id", "cmp",
     )
     table = (tmp_path / "runs" / "cmp" / "comparison.md").read_text()
-    assert "B0_full_document" in table
+    assert "D1_dag_context" in table
     payload = json.loads((tmp_path / "runs" / "cmp" / "comparison.json").read_text())
     assert len(payload["conditions"]) == 1
 

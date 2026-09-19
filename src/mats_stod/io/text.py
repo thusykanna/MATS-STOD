@@ -47,7 +47,8 @@ def estimate_tokens(text: str, chars_per_token: float) -> int:
     """Rough token estimate used only for budgeting decisions.
 
     Reported token counts always come from the provider; this is for deciding
-    whether B0 must fall back to chunks before any call is made.
+    how much discourse-graph context (`translation.context.build_dag_context`)
+    fits before a segment is sent for translation.
     """
     if chars_per_token <= 0:
         raise ValueError("chars_per_token must be positive")
