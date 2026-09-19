@@ -113,7 +113,7 @@ def test_none_inferrer_proposes_nothing(settings: Settings) -> None:
 
 @pytest.mark.parametrize(
     ("name", "module"),
-    [("predecessor", "simple_edges"), ("tfidf", "simple_edges"), ("graft", "graft_edges")],
+    [("predecessor", "simple_edges"), ("tfidf", "simple_edges")],
 )
 def test_unbuilt_inferrer_names_its_file(settings: Settings, name: str, module: str) -> None:
     """An inferrer in the registry but not on disk must say where it belongs.
@@ -124,6 +124,24 @@ def test_unbuilt_inferrer_names_its_file(settings: Settings, name: str, module: 
     with pytest.raises(NotImplementedError) as excinfo:
         build_edge_inferrer(name, settings)
     assert module in str(excinfo.value)
+
+
+def test_graft_is_built_and_needs_a_client(settings: Settings) -> None:
+    """The one inferrer that costs money is also the one that needs a client.
+
+    Asking for it without one must fail at construction, not after the first
+    call has already been billed.
+    """
+    from mats_stod.graph.graft_edges import GraftPairwiseEdgeInferrer
+    from mats_stod.llm.factory import build_llm
+    from mats_stod.llm.fake import FakeLLM
+
+    with pytest.raises(ValueError, match="needs an LLM client"):
+        build_edge_inferrer("graft", settings)
+
+    settings.llm.use_cache = False
+    llm = build_llm(settings, provider=FakeLLM(default="no"))
+    assert isinstance(build_edge_inferrer("graft", settings, llm), GraftPairwiseEdgeInferrer)
 
 
 def test_unknown_inferrer_rejected(settings: Settings) -> None:

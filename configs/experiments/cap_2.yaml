@@ -1,0 +1,6 @@
+# Parent-cap ablation: keep at most 2 parents per segment.
+# The cap is applied after inference, so a sweep re-uses the cache and costs
+# nothing. See D30 for why the rule keeps the nearest parents.
+run_name: cap_2
+graph:
+  max_parents: 2
