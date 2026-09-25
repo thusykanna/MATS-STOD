@@ -22,173 +22,301 @@ Translation*, EMNLP 2025 Industry Track, [arXiv
 
 Both translation directions are supported everywhere: `si→ta` and `ta→si`.
 
-## Install
+## Setup: Windows, macOS and Linux
 
-The only prerequisite is [uv](https://docs.astral.sh/uv/). It fetches Python
-3.11 itself (pinned in `.python-version`) and creates the virtual environment,
-so nothing else needs installing first.
+Follow steps 1–4 for an offline setup. For real Gemini translations through
+**Google Cloud Vertex AI**, continue with steps 5–6.
+
+Use **PowerShell on Windows** and **Terminal with bash or zsh on macOS/Linux**.
+Commands marked **All platforms** work in either shell. Run commands from the
+repository folder unless a step says otherwise.
+
+### 1. Install Git and uv
+
+You need Git and [uv](https://docs.astral.sh/uv/). uv downloads the pinned
+Python 3.11 version and manages the virtual environment for you; a separate
+Python installation is not required. Installation needs an internet connection.
+
+**Windows — PowerShell**
+
+```powershell
+winget install --id Git.Git -e
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**macOS — Terminal**
+
+Install Apple's command-line tools if Git is not already installed, then install uv:
 
 ```bash
-# macOS / Linux, if you do not already have uv:
+xcode-select --install
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-git clone <this-repo> && cd MATS-STOD
-uv sync --dev          # Python, dependencies and test tooling
-uv run pytest          # 212 pass, 1 skipped, offline, ~2s
 ```
 
-That is the whole setup for everything except calling a real model. No Google
-account, no API key, no network: the suite blocks sockets, and every command
-runs against a scripted fake model with `--provider fake`.
+**Linux — Terminal**
 
-Add the cloud SDK only when you want real translations:
+Install Git and curl using your distribution's package manager. For Ubuntu/Debian:
 
 ```bash
-uv sync --extra gemini
+sudo apt update
+sudo apt install git curl
 ```
 
-Then follow [Using a real model](#using-a-real-model) below.
-
-## Quick start
+Then install uv:
 
 ```bash
-uv run mats-stod make-split --data data/samples # throwaway split over the samples
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Close and reopen your terminal so the new tools are on `PATH`, then check:
+
+```text
+git --version
+uv --version
+```
+
+### 2. Get the code
+
+The setup in [README_WINDOWS.md](README_WINDOWS.md) targets the **`dev` branch**;
+use the same branch on all platforms.
+
+**Windows — PowerShell**
+
+Use a short path outside OneDrive, which can lock virtual-environment files:
+
+```powershell
+New-Item -ItemType Directory -Force C:\dev
+Set-Location C:\dev
+git clone -b dev https://github.com/thusykanna/MATS-STOD.git
+Set-Location MATS-STOD
+```
+
+**macOS / Linux — Terminal**
+
+```bash
+mkdir -p ~/dev
+cd ~/dev
+git clone -b dev https://github.com/thusykanna/MATS-STOD.git
+cd MATS-STOD
+```
+
+If you already have this checkout, open a terminal in its root folder instead.
+
+### 3. Install dependencies and check the setup
+
+**All platforms — choose one installation:**
+
+```text
+uv sync --dev --extra gemini
+```
+
+This installs the application, test tools and Google SDK for real translations.
+For an offline-only setup without the Google SDK, use `uv sync --dev` instead.
+
+When using Gemini, **keep `--extra gemini` on subsequent `uv sync` commands**;
+otherwise uv removes the optional Google SDK.
+
+Run the tests:
+
+```text
+uv run pytest
+```
+
+The test suite blocks network calls and requires no Google account or API key.
+You do not need to activate `.venv`: `uv run` selects the project environment.
+
+### 4. Run the offline demo
+
+**All platforms**
+
+```text
+uv run mats-stod make-split --data data/samples
 uv run mats-stod compare --provider fake --data data/samples --portion all
 ```
 
-Output lands in `runs/<run_id>/`: `report.md`, `results.json`,
-`config_used.yaml`, per-document artifacts and a JSONL event log.
+Create the split only once; `make-split` refuses to overwrite an existing split.
+If it already exists, skip that command. The fake provider uses scripted
+responses, so this checks the pipeline without making real model calls.
 
-## Using a real model
+Outputs land in `runs/<run_id>/`:
 
-Everything above works without this. Do it only when you want real
-translations rather than the offline fake.
+| File | Contents |
+|---|---|
+| `report.md` | Scores, call counts and cache hits |
+| `results.json` | Machine-readable results |
+| `config_used.yaml` | Configuration used for the run |
+| `documents/<doc_id>/translation.txt` | Translated text |
+| `log.jsonl` | Event log |
 
-Two backends are available and both call the same Gemini models. **AI Studio**
-needs an API key and nothing else. **Vertex AI** is the default and needs a
-Google Cloud project; use it if your budget is Google Cloud trial credit.
+The three sample document pairs are synthetic and must not be reported as
+research results.
 
-### Option A: AI Studio, about two minutes
+### 5. Configure Vertex AI (optional)
 
-```bash
-uv sync --extra gemini
+If you chose the offline-only installation, first run:
+
+```text
+uv sync --dev --extra gemini
 ```
 
-Get a key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey),
-then:
+Create your local configuration file using the command for your shell.
+**If `.env` already exists, edit it instead of overwriting it.**
 
-```bash
-cp .env.example .env        # put the key in GEMINI_API_KEY
+**Windows — PowerShell**
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
 ```
 
-Set `llm.backend: ai_studio` in `configs/default.yaml`, then jump to
-[Verify](#verify-before-spending-anything).
-
-### Option B: Vertex AI
-
-You need a Google account, a Google Cloud project, and **billing enabled** on
-that project. Free-trial credits count as billing, so a trial project works,
-but a project with no billing account will be refused.
-
-**1. Install the Python SDK and the Google Cloud CLI.**
+**macOS / Linux — Terminal**
 
 ```bash
-uv sync --extra gemini
-brew install --cask google-cloud-sdk    # macOS
+cp .env.example .env
+nano .env
 ```
 
-On Linux or Windows, follow
-[cloud.google.com/sdk/docs/install](https://cloud.google.com/sdk/docs/install).
-Confirm with `gcloud --version`.
+You can use any text editor. `.env` is gitignored and loaded automatically;
+environment variables already set in your shell take precedence.
 
-**2. Log in.** This opens a browser and is the only interactive step. It writes
-Application Default Credentials, which is what the Python SDK reads. Logging in
-with `gcloud auth login` alone is not enough.
+You need a Google account and a Google Cloud project with **billing enabled**.
+Free-trial credit can be used through a billing-enabled project.
 
-```bash
-gcloud auth application-default login
+**Install the Google Cloud CLI**
+
+Windows — run the installer and accept its defaults. You can skip `gcloud init`
+at the end because the commands below configure the CLI:
+
+```powershell
+(New-Object Net.WebClient).DownloadFile("https://dl.google.com/dl/cloudsdk/channels/rapid/GoogleCloudSDKInstaller.exe", "$env:Temp\GoogleCloudSDKInstaller.exe")
+& "$env:Temp\GoogleCloudSDKInstaller.exe"
 ```
 
-**3. Choose the project.** Create one at
-[console.cloud.google.com](https://console.cloud.google.com) if you have none.
-The project **id** is what you need, not the display name.
+macOS — if you use Homebrew:
 
 ```bash
-gcloud projects list                        # the PROJECT_ID column
+brew install --cask google-cloud-sdk
+```
+
+Linux, or macOS without Homebrew — follow the
+[Google Cloud CLI installation guide](https://cloud.google.com/sdk/docs/install)
+for your operating system.
+
+Reopen your terminal, return to the repository folder and run `gcloud --version`.
+
+**Sign in and configure your project — all platforms**
+
+Replace `YOUR_PROJECT_ID` with your project **ID**, not its display name. Create
+a project in the [Google Cloud Console](https://console.cloud.google.com) if needed.
+
+First, sign in to the CLI (a browser opens), list your projects and select one:
+
+```text
+gcloud auth login
+gcloud projects list
 gcloud config set project YOUR_PROJECT_ID
 ```
 
-**4. Enable the Vertex AI API and set the quota project.** The second command
-is not optional: without it gcloud warns that your active project does not
-match the quota project, and client libraries have no project to bill against.
+Check billing. The output should include `billingEnabled: true`; otherwise,
+link a billing account under **Billing** in the Cloud Console.
 
-```bash
+```text
+gcloud billing projects describe YOUR_PROJECT_ID
+```
+
+Enable Vertex AI, then create Application Default Credentials for the Python
+SDK (a second browser login) and set their quota project:
+
+```text
 gcloud services enable aiplatform.googleapis.com --project YOUR_PROJECT_ID
+gcloud auth application-default login
 gcloud auth application-default set-quota-project YOUR_PROJECT_ID
 ```
 
-**5. Record the project for this repository.**
+The two logins serve different purposes: `gcloud auth login` authorises CLI
+commands; `gcloud auth application-default login` authorises the Python SDK.
+Complete both, including the quota-project step.
 
-```bash
-cp .env.example .env        # set GOOGLE_CLOUD_PROJECT to your project id
+For an organisation or university project, ask its administrator for the
+**Vertex AI User** role (`roles/aiplatform.user`) if your account lacks access.
+
+**Update `.env` — all platforms**
+
+```ini
+GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID
+GOOGLE_CLOUD_LOCATION=us-central1
 ```
 
-`.env` is gitignored and read automatically, so the id never gets committed
-and you never need to export it again. Anything exported in your shell still
-wins over the file.
+No API key is needed for this setup. `configs/default.yaml` already selects `llm.backend: vertex` and `llm.model: gemini-2.5-flash`.
 
-If the project belongs to an organisation rather than to you, your account also
-needs the **Vertex AI User** role (`roles/aiplatform.user`) on it.
+### 6. Verify and run a real translation
 
-### Verify before spending anything
+**All platforms**
 
-```bash
-uv run mats-stod check-llm          # configuration only, no call, no cost
-uv run mats-stod check-llm --send   # one real call, a handful of tokens
+Check configuration first. This makes no model call and costs nothing:
+
+```text
+uv run mats-stod check-llm
 ```
 
-`check-llm` lists what is set and what is missing, and never prints a key: a
-credential shows only as "set (21 chars)", so its output is safe to paste into
-a message or a screenshot.
+Then test one real call, which uses a small number of tokens and may incur charges:
 
-Then run for real, smallest first:
-
-```bash
-uv run mats-stod translate --max-docs 1
+```text
+uv run mats-stod check-llm --send
 ```
 
-### When it goes wrong
+A successful reply confirms that Vertex AI credentials work and the configured
+model is reachable.
 
-Failures that cannot be fixed by retrying, such as a bad project or a retired
-model, fail immediately and print the fix rather than retrying three times.
-Quota errors and server blips still back off and retry.
+Start with one sample document:
 
-| What you see | What it means | Fix |
-|---|---|---|
-| `google-genai is not installed` | Optional extra missing | `uv sync --extra gemini` |
-| `could not automatically determine credentials` | Never logged in | `gcloud auth application-default login` |
-| `Vertex backend needs a project` | No project set | Put `GOOGLE_CLOUD_PROJECT` in `.env` |
-| `403 SERVICE_DISABLED` | API not enabled | `gcloud services enable aiplatform.googleapis.com --project ID` |
-| `403 PERMISSION_DENIED` | Wrong project id, no billing, or missing role | Check the id, enable billing, grant Vertex AI User |
-| `404 ... was not found or your project does not have access` | Model retired or unavailable in this region | Change `llm.model` or `llm.location` |
-| `429 RESOURCE_EXHAUSTED` | Quota exceeded | Wait, or lower `--max-docs` |
-| Quota project warning from gcloud | ADC has no quota project | `gcloud auth application-default set-quota-project ID` |
+```text
+uv run mats-stod translate --data data/samples --portion all --max-docs 1
+```
 
-**Model names change and a listed model is not necessarily a callable one.**
-`gcloud` lists models this project cannot use; several return 404 when called.
-Trust `check-llm --send`, not a listing. The default `gemini-2.5-flash` was
-verified working on Vertex in `us-central1`.
+The default direction is Sinhala to Tamil. To reverse it:
 
-Switching between the two backends never re-spends tokens: both produce
-identical cache keys for identical prompts.
+```text
+uv run mats-stod translate --data data/samples --portion all --source ta --target si --max-docs 1
+```
 
-Budget controls, available on every command:
+Open the files in `runs/<run_id>/` to inspect the results. If Sinhala or Tamil
+appears as boxes in your terminal, open the UTF-8 output in an editor with a
+font that supports those scripts.
 
-- `--max-docs N` caps how many documents are processed.
-- `--dry-run` serves cached calls and **fails** on the first uncached one,
-  rather than inventing an answer.
-- Every call goes through a SQLite cache, so a re-run makes no new calls. The
-  report prints how many calls were made and how many were served from cache.
+## Controlling cost
+
+For pipeline commands such as `translate` and `compare`:
+
+- `--max-docs N` caps the number of documents processed. Start with `1`.
+- `--provider fake` uses scripted responses without real model calls.
+- `--dry-run` serves cached responses and stops at the first uncached call.
+
+Model responses are cached in `.cache/llm_cache.sqlite`. Identical cached
+requests can be reused; changes to prompts or model settings can require new
+calls. Reports show call counts and cache hits.
+
+## Troubleshooting
+
+| What you see | What to do |
+|---|---|
+| `uv`, `git` or `gcloud` is not found | Reopen your terminal after installation and check the tool is on `PATH`. |
+| PowerShell says scripts are disabled | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, then reopen PowerShell. On a managed machine, follow your organisation's policy. |
+| Windows install fails with locked files or access denied | Keep the checkout outside OneDrive, for example in `C:\dev`. |
+| `You do not currently have an active account selected` | Run `gcloud auth login`. |
+| `google-genai is not installed` | Run `uv sync --dev --extra gemini`. |
+| `could not automatically determine credentials` | Run `gcloud auth application-default login`. |
+| `Vertex backend needs a project` | Set `GOOGLE_CLOUD_PROJECT` in `.env` and run `check-llm`. |
+| `403 SERVICE_DISABLED` | Run `gcloud services enable aiplatform.googleapis.com --project YOUR_PROJECT_ID`. |
+| `403 PERMISSION_DENIED` | Check the project ID, billing and your account's permissions. |
+| `404 ... was not found or your project does not have access` | Check model availability and update `llm.model` or the configured region. |
+| `429 RESOURCE_EXHAUSTED` | Wait for quota to recover or reduce the workload with `--max-docs`. |
+| gcloud warns about the quota project | Run `gcloud auth application-default set-quota-project YOUR_PROJECT_ID`. |
+| `make-split` refuses to overwrite a split | Skip it if the existing split is the one you intend to use. |
+
+Non-retryable configuration errors stop immediately; quota and transient server
+errors back off and retry. Model availability can change: use `check-llm --send`
+to verify access to the configured model and region.
 
 ## Commands
 
