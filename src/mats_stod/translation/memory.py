@@ -56,6 +56,7 @@ MEMORY_SCHEMA = {
         **{
             name: {
                 "type": "array",
+                "maxItems": 10,
                 "items": {
                     "type": "object",
                     "properties": {"source": {"type": "string"}, "target": {"type": "string"}},
@@ -122,6 +123,7 @@ class MemoryAgent:
                 schema=MEMORY_SCHEMA,
                 max_output_tokens=self.settings.memory.max_output_tokens,
                 temperature=self.settings.llm.temperature,
+                thinking_budget=self.settings.memory.thinking_budget,
             )
             tokens_in += response.tokens_in
             tokens_out += response.tokens_out
@@ -131,9 +133,11 @@ class MemoryAgent:
             except (ParseError, ValidationError) as exc:
                 failures.append(str(exc))
                 self.llm.discard_invalid(
-                    [Message("user", body)], schema=MEMORY_SCHEMA,
+                    [Message("user", body)],
+                    schema=MEMORY_SCHEMA,
                     max_output_tokens=self.settings.memory.max_output_tokens,
                     temperature=self.settings.llm.temperature,
+                    thinking_budget=self.settings.memory.thinking_budget,
                 )
                 continue
             return MemoryRecord(

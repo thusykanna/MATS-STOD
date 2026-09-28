@@ -153,6 +153,18 @@ def test_extraction_retries_and_accounts_for_both_calls(baseline):
     prompts = [call["messages"][0]["content"] for call in llm.provider.calls]
     assert prompts[0] != prompts[1]
     assert "Done" in prompts[0] and seg.text in prompts[0]
+    assert all(call["params"]["thinking_budget"] == 0 for call in llm.provider.calls)
+
+
+def test_memory_schema_and_prompt_bound_extraction():
+    from mats_stod.prompts.registry import render
+    from mats_stod.translation.memory import MEMORY_SCHEMA
+
+    assert MEMORY_SCHEMA["properties"]["entities"]["maxItems"] == 10
+    prompt = render(
+        "memory_v1", source_lang="Sinhala", target_lang="Tamil", source="Text.", translation="உரை."
+    )
+    assert "at most 10 salient" in prompt
 
 
 def test_failed_memory_resumes_saved_translation_with_sqlite(baseline, tmp_path):

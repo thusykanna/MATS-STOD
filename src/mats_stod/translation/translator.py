@@ -136,7 +136,8 @@ class Translator:
                 flags.append(f"parse_failure_attempt_{attempt + 1}: {exc}")
                 if self.settings.translation.condition == "graft_baseline":
                     self.llm.discard_invalid(
-                        [Message("user", body)], schema=TRANSLATION_SCHEMA,
+                        [Message("user", body)],
+                        schema=TRANSLATION_SCHEMA,
                         max_output_tokens=self.settings.llm.max_output_tokens,
                         temperature=self.settings.llm.temperature,
                     )
