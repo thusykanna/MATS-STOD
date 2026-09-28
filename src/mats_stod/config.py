@@ -109,7 +109,7 @@ class SegmentationSettings(BaseModel):
         default_factory=lambda: ["heading", "list_item", "table_cell", "caption"]
     )
     sentences: SentenceSplitSettings = Field(default_factory=SentenceSplitSettings)
-    prompt_version: str = "discourse_v1"
+    prompt_version: str = "discourse/v1"
     boundary_tolerance_chars: int = 2
     #: Output cap for one yes/no decision. Small, but not so small that a
     #: model which prefixes its answer gets truncated.
@@ -132,7 +132,7 @@ class GraphSettings(BaseModel):
     #: null keeps GRAFT faithful (every earlier segment is a candidate).
     max_pair_distance: int | None = Field(default=None, ge=0)
     transitive_reduction: bool = False
-    prompt_version: str = "edge_v1"
+    prompt_version: str = "edge/v1"
     #: GRAFT's edge agent answers in one word. The cap is a little larger so a
     #: model that replies "Yes." rather than "yes" is not truncated.
     decision_max_tokens: int = 16
@@ -166,7 +166,7 @@ class ProtectSettings(BaseModel):
 
 class TranslationSettings(BaseModel):
     condition: Literal["graft_baseline", "dag_raw_context"] = "graft_baseline"
-    prompt_version: str = "translate_v1"
+    prompt_version: str = "translate/v1"
     domain_note: str = "Official government document. Formal register."
     #: Rough characters-per-token for Sinhala/Tamil used only for budgeting
     #: decisions, never for reported token counts.
@@ -183,7 +183,7 @@ class TranslationSettings(BaseModel):
 
 
 class MemorySettings(BaseModel):
-    prompt_version: str = "memory_v1"
+    prompt_version: str = "memory/v1"
     max_output_tokens: int = Field(default=4096, gt=0)
     #: Memory extraction is a bounded structured task. Disable Gemini's
     #: optional reasoning so it cannot consume the response budget before the
@@ -203,7 +203,10 @@ class EvaluationSettings(BaseModel):
     chrf_beta: int = 2
     bootstrap_resamples: int = 1000
     bootstrap_seed: int = 12345
-
+    comet_enabled: bool = False
+    comet_model: str = "Unbabel/wmt22-comet-da"
+    comet_batch_size: int = 8
+    comet_gpus: int = 0 
 
 class PathSettings(BaseModel):
     parallel: str = "data/parallel"

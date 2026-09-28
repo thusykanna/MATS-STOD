@@ -17,3 +17,4 @@ data/gold/
 !data/gold/segmentation/.gitkeep
 !data/gold/edges/.gitkeep
 .cache/
+experiments.xlsx

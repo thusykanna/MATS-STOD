@@ -23,6 +23,10 @@ dependencies = [
 [project.optional-dependencies]
 gemini = ["google-genai>=1.0"]
 openai = ["openai>=1.30"]
+comet = [
+    "setuptools<81",
+    "unbabel-comet>=2.2.7",
+]
 
 [project.scripts]
 # main() wraps app() so expected conditions, such as a dry run finding

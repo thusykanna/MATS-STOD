@@ -27,7 +27,7 @@ def _env() -> Environment:
 
 
 def render(version: str, **slots: object) -> str:
-    """Render a versioned prompt template by name, e.g. "translate_v1"."""
+    """Render a versioned prompt template by name, e.g. "translate/v1"."""
     template = _env().get_template(f"{version}.jinja")
     return template.render(**slots).strip()
 

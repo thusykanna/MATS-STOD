@@ -162,7 +162,7 @@ def test_memory_schema_and_prompt_bound_extraction():
 
     assert MEMORY_SCHEMA["properties"]["entities"]["maxItems"] == 10
     prompt = render(
-        "memory_v1", source_lang="Sinhala", target_lang="Tamil", source="Text.", translation="உரை."
+        "memory/v1", source_lang="Sinhala", target_lang="Tamil", source="Text.", translation="உரை."
     )
     assert "at most 10 salient" in prompt
 

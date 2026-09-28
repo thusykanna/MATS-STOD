@@ -32,7 +32,7 @@ segmentation:
   merge_short_blocks: true
   split_long_blocks: true
   atomic_types: [heading, list_item, table_cell, caption]
-  prompt_version: discourse_v1
+  prompt_version: discourse/v1
   decision_max_tokens: 16
   decision_thinking_budget: 0   # 0 = no reasoning for the yes/no call
   boundary_tolerance_chars: 2
@@ -54,11 +54,11 @@ graph:
   max_pairwise_calls_per_doc: 4000
   max_pair_distance: null   # null = faithful GRAFT (all earlier segments)
   transitive_reduction: false
-  prompt_version: edge_v1
+  prompt_version: edge/v1
 
 translation:
   condition: graft_baseline # dag_raw_context is the explicit comparison condition
-  prompt_version: translate_v1
+  prompt_version: translate/v1
   domain_note: "Official government document. Formal register. Preserve numbers, dates and reference codes exactly."
   chars_per_token_estimate: 2.5
   context_token_budget: 2000
@@ -72,7 +72,7 @@ translation:
       - '[A-Z]{2,}(?:/[A-Z0-9]+)+'
 
 memory:
-  prompt_version: memory_v1
+  prompt_version: memory/v1
   max_output_tokens: 8192
   thinking_budget: 0
   retry_on_parse_failure: 1
@@ -86,6 +86,10 @@ evaluation:
   chrf_beta: 2
   bootstrap_resamples: 1000
   bootstrap_seed: 12345
+  comet_enabled: false
+  comet_model: Unbabel/wmt22-comet-da
+  comet_batch_size: 8
+  comet_gpus: 0
 
 paths:
   parallel: data/parallel

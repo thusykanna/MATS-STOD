@@ -81,28 +81,25 @@ def render_report(results: dict[str, Any], settings: Settings) -> str:
     corpus = results.get("corpus")
     if corpus:
         lines.append("\n## Corpus scores\n")
-        lines.append(
-            _table(
-                ["metric", "score", "documents"],
-                [
-                    ["chrF++", corpus["chrf"], corpus["n_docs"]],
-                    ["BLEU", corpus["bleu"], corpus["n_docs"]],
-                ],
-            )
-        )
+        rows = [
+            ["chrF++", corpus["chrf"], corpus["n_docs"]],
+            ["BLEU", corpus["bleu"], corpus["n_docs"]],
+        ]
+        if "comet" in (corpus.get("extra") or {}):
+            rows.append(["COMET", corpus["extra"]["comet"], corpus["n_docs"]])
+        lines.append(_table(["metric", "score", "documents"], rows))
 
     docs = results.get("documents") or []
     if docs:
         lines.append("\n## Per-document scores\n")
-        lines.append(
-            _table(
-                ["doc_id", "chrF++", "BLEU", "hyp chars", "ref chars"],
-                [
-                    [d["doc_id"], d["chrf"], d["bleu"], d["n_chars_hyp"], d["n_chars_ref"]]
-                    for d in docs
-                ],
-            )
-        )
+        has_comet = any("comet" in (d.get("extra") or {}) for d in docs)
+        headers = ["doc_id", "chrF++", "BLEU", "hyp chars", "ref chars"]
+        rows = [
+            [d["doc_id"], d["chrf"], d["bleu"], d["n_chars_hyp"], d["n_chars_ref"]]
+            + ([d["extra"].get("comet", "")] if has_comet else [])
+            for d in docs
+        ]
+        lines.append(_table(headers + (["COMET"] if has_comet else []), rows))
 
     seg_stats = results.get("segmentation_stats")
     if seg_stats:

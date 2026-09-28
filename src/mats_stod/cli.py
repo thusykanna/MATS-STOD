@@ -16,6 +16,7 @@ import typer
 from .config import Settings, load_settings
 from .evaluation.metrics import score_corpus, score_document
 from .evaluation.report import write_report
+from .evaluation.comet_metric import add_comet_if_enabled
 from .io.env import credential_status, load_env_file
 from .io.parallel import load_parallel, load_text_dir
 from .io.runs import RunDir
@@ -153,7 +154,7 @@ def translate(
     llm = build_llm(settings, dry_run=dry_run)
     run = RunDir.create(settings, prefix="translate-dag", run_id=run_id, dry_run=dry_run)
 
-    hyps, refs, doc_scores = [], [], []
+    hyps, refs, srcs, doc_scores = [], [], [], []
     with SqliteSaver.from_conn_string(str(checkpoint_path(run))) as checkpointer:
         for pair in pairs:
             try:
@@ -166,6 +167,7 @@ def translate(
             write_document_artifacts(run, result)
             hyps.append(result.output_text)
             refs.append(result.reference_text)
+            srcs.append(pair.source_text)
             doc_scores.append(
                 score_document(
                     pair.doc_id, result.output_text, pair.reference_text, settings.evaluation
@@ -174,6 +176,7 @@ def translate(
             run.log("translated", doc_id=pair.doc_id, segments=len(result.segments))
 
     corpus = score_corpus(hyps, refs, settings.evaluation)
+    add_comet_if_enabled(settings.evaluation, doc_scores, corpus, srcs, hyps, refs)
     flagged = [
         {"doc_id": p.doc_id, "seg_id": r["seg_id"], "flag": flag}
         for p in pairs
@@ -188,7 +191,12 @@ def translate(
         llm.ledger,
         extra={"flagged_segments": flagged},
     )
-    typer.echo(f"chrF++ {corpus.chrf}  BLEU {corpus.bleu}  documents {corpus.n_docs}")
+    comet = (corpus.extra or {}).get("comet")
+    typer.echo(
+        f"chrF++ {corpus.chrf}  BLEU {corpus.bleu}"
+        + (f"  COMET {comet}" if comet is not None else "")
+        + f"  documents {corpus.n_docs}"
+    )
     typer.echo(f"Report: {run.path / 'report.md'}")
 
 
