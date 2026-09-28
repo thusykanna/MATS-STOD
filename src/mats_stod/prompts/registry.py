@@ -38,4 +38,7 @@ def prompt_text(version: str) -> str:
 
 
 def available() -> list[str]:
-    return sorted(p.stem for p in PROMPT_DIR.glob("*.jinja"))
+    return sorted(
+        p.relative_to(PROMPT_DIR).with_suffix("").as_posix()
+        for p in PROMPT_DIR.rglob("*.jinja")
+    )
