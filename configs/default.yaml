@@ -73,7 +73,8 @@ translation:
 
 memory:
   prompt_version: memory_v1
-  max_output_tokens: 4096
+  max_output_tokens: 8192
+  thinking_budget: 0
   retry_on_parse_failure: 1
   request_token_limit: 32000 # estimated complete input + reserved output; fail, never truncate
 
