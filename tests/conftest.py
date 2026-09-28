@@ -36,6 +36,10 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
 def settings(tmp_path: Path) -> Settings:
     """Default settings, redirected so tests never touch the real run dirs."""
     s = load_settings()
+    # Existing suite tests the retained raw-context ablation. Baseline tests
+    # explicitly switch to graft_baseline; CLI tests load the real defaults.
+    s.translation.condition = "dag_raw_context"
+    s.segmentation.max_discourse_chars = 2048
     s.paths.runs = str(tmp_path / "runs")
     s.paths.gold_segmentation = str(tmp_path / "gold" / "segmentation")
     s.paths.gold_edges = str(tmp_path / "gold" / "edges")

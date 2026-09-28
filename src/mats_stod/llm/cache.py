@@ -95,6 +95,12 @@ class LLMCache:
         with self._lock:
             return int(self._conn.execute("SELECT COUNT(*) FROM llm_cache").fetchone()[0])
 
+    def discard(self, key: str) -> None:
+        """Remove one response rejected by a downstream schema validator."""
+        with self._lock:
+            self._conn.execute("DELETE FROM llm_cache WHERE key = ?", (key,))
+            self._conn.commit()
+
     def close(self) -> None:
         with self._lock:
             self._conn.close()

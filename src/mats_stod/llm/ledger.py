@@ -26,6 +26,8 @@ class CallLedger:
     """Running totals for one run."""
 
     calls: list[CallRecord] = field(default_factory=list)
+    request_purposes: list[str] = field(default_factory=list)
+    provider_purposes: list[str] = field(default_factory=list)
 
     def record(
         self,
@@ -86,6 +88,10 @@ class CallLedger:
     def summary(self) -> dict[str, Any]:
         return {
             "calls": self.n_calls,
+            "logical_requests": len(self.request_purposes),
+            "provider_calls": len(self.provider_purposes),
+            "accounting_scope": "Provider adapter invocations, including failures; "
+            "excludes retries internal to adapters/SDKs. calls counts completed responses.",
             "cache_hits": self.n_cached,
             "tokens_in_total": self.tokens_in_total,
             "tokens_out_total": self.tokens_out_total,

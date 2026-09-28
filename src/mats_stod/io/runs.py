@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import BaseModel
 
 from ..config import REPO_ROOT, Settings
@@ -41,6 +42,10 @@ def new_run_id(prefix: str) -> str:
     return f"{stamp}_{prefix}"
 
 
+class RunConfigurationError(RuntimeError):
+    """An existing run must retain its original configuration and provenance."""
+
+
 class RunDir:
     """Handle on one run directory."""
 
@@ -61,6 +66,15 @@ class RunDir:
     ) -> RunDir:
         rid = run_id or new_run_id(prefix)
         run = cls(Path(settings.paths.runs) / rid, settings, dry_run=dry_run)
+        config_path = run.path / "config_used.yaml"
+        if config_path.exists():
+            previous = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            if previous != settings.model_dump(mode="json"):
+                raise RunConfigurationError(
+                    "Run configuration differs from config_used.yaml. Use a fresh --run-id; "
+                    "existing run artifacts were left unchanged."
+                )
+            return run
         run.write_text("config_used.yaml", settings.to_yaml())
         run.write_json(
             "run_meta.json",

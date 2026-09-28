@@ -45,12 +45,25 @@ class DocumentGraph:
     stats: dict[str, Any] = field(default_factory=dict)
 
 
+class BaselineConfigurationError(ValueError):
+    """A graph ablation must not be labeled as the GRAFT baseline."""
+
+
 def build_document_graph(pair: DocPair, settings: Settings, llm: CachedLLM) -> DocumentGraph:
     """Segment one document and build its discourse graph."""
+    if settings.translation.condition == "graft_baseline" and (
+        settings.graph.max_parents > 0 or settings.graph.max_pair_distance is not None
+        or settings.graph.transitive_reduction
+    ):
+        raise BaselineConfigurationError(
+            "graft_baseline requires max_parents: 0, max_pair_distance: null, "
+            "transitive_reduction: false. Choose dag_raw_context for graph ablations."
+        )
     seg = segment_document(pair, settings, llm)
     inferrer = GraftPairwiseEdgeInferrer(settings, llm)
 
-    structural = infer_structural_edges(seg.document, seg.segments)
+    structural = ([] if settings.translation.condition == "graft_baseline"
+                  else infer_structural_edges(seg.document, seg.segments))
     inferred = inferrer.infer(seg.segments)
 
     graph, assembly = assemble_graph(

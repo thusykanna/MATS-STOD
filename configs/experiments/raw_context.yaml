@@ -1,0 +1,10 @@
+# Previous approach retained as an explicit comparison condition.
+run_name: raw_context
+segmentation:
+  max_discourse_chars: 2048
+translation:
+  condition: dag_raw_context
+  dag_context_depth: 2
+  context_token_budget: 2000
+graph:
+  max_parents: 4

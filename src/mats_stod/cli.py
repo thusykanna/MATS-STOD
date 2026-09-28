@@ -139,7 +139,7 @@ def translate(
     dry_run: bool = typer.Option(False, "--dry-run"),
     run_id: str | None = typer.Option(None, "--run-id"),
 ) -> None:
-    """Translate documents under the DAG-context condition (D1)."""
+    """Translate with the configured condition (GRAFT memory by default)."""
     from langgraph.checkpoint.sqlite import SqliteSaver
 
     from .pipelines.dag_translate import (
@@ -156,7 +156,13 @@ def translate(
     hyps, refs, doc_scores = [], [], []
     with SqliteSaver.from_conn_string(str(checkpoint_path(run))) as checkpointer:
         for pair in pairs:
-            result = translate_document(pair, settings, llm, checkpointer)
+            try:
+                result = translate_document(pair, settings, llm, checkpointer)
+            except Exception as exc:
+                run.log("document_failed", doc_id=pair.doc_id,
+                        condition=settings.translation.condition,
+                        error_type=type(exc).__name__, error=str(exc))
+                raise
             write_document_artifacts(run, result)
             hyps.append(result.output_text)
             refs.append(result.reference_text)
@@ -200,7 +206,7 @@ def compare(
     dry_run: bool = typer.Option(False, "--dry-run"),
     run_id: str | None = typer.Option(None, "--run-id"),
 ) -> None:
-    """Run the DAG-context condition on the same documents and tabulate it."""
+    """Score and tabulate the configured translation condition."""
     from .pipelines.compare import run_comparison
 
     settings = _settings(config, experiment, source, target, model=model, provider=provider)
@@ -427,8 +433,12 @@ def main() -> None:  # pragma: no cover
     outcome of a guard doing its job. Printing a stack trace for it makes a
     working safeguard look like a crash.
     """
+    from .graph.graft_edges import PairwiseCallBudgetError
+    from .io.runs import RunConfigurationError
     from .llm.base import LLMError
     from .llm.client import DryRunExhausted
+    from .pipelines.dag_translate import CheckpointCompatibilityError
+    from .pipelines.graph_pipeline import BaselineConfigurationError
 
     # SystemExit rather than typer.Exit: this is outside the Typer callback,
     # where typer.Exit is not translated into an exit code.
@@ -441,6 +451,10 @@ def main() -> None:  # pragma: no cover
             "to make these calls.",
             err=True,
         )
+        raise SystemExit(2) from None
+    except (PairwiseCallBudgetError, CheckpointCompatibilityError, RunConfigurationError,
+            BaselineConfigurationError) as exc:
+        typer.echo(f"\nRun stopped: {exc}", err=True)
         raise SystemExit(2) from None
     except LLMError as exc:
         typer.echo(f"\nLLM call failed: {exc}", err=True)

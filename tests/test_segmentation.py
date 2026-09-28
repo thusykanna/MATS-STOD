@@ -32,8 +32,8 @@ def test_block_offsets_slice_the_original_text(sample_doc):
 
 
 @pytest.mark.parametrize("name", ["markdown", "pdf", "docx"])
-def test_deferred_parsers_raise_not_implemented(name):
-    with pytest.raises(NotImplementedError):
+def test_unsupported_parsers_are_rejected(name):
+    with pytest.raises(ValueError, match="unknown parser"):
         build_parser(name).parse("text", "d", "si")
 
 

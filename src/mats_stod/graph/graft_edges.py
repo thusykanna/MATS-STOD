@@ -18,6 +18,9 @@ Three properties are deliberate:
 
 from __future__ import annotations
 
+import sys
+from collections.abc import Iterator
+
 from ..config import Settings
 from ..llm.base import Message, ParseError, parse_yes_no
 from ..llm.client import CachedLLM
@@ -30,17 +33,25 @@ class PairwiseCallBudgetError(RuntimeError):
     """Raised when a document would need more pairwise calls than allowed."""
 
 
-def plan_pairs(n: int, max_distance: int | None = None) -> list[tuple[int, int]]:
-    """Non-adjacent ordered pairs (i, j) with j >= i + 2, in reading order.
+def count_pairs(n: int, max_distance: int | None = None) -> int:
+    """Count candidate decisions in constant space before allocating a plan."""
+    distance = n - 1 if max_distance is None else min(max_distance, n - 1)
+    if distance < 2:
+        return 0
+    return (distance - 1) * n - (distance * (distance + 1) // 2 - 1)
 
-    Adjacent pairs are excluded because GRAFT links every segment to its
-    successor unconditionally; asking about them would pay for an answer that
-    is already decided.
-    """
-    pairs = [(i, j) for j in range(n) for i in range(j - 1)]
-    if max_distance is not None:
-        pairs = [(i, j) for i, j in pairs if j - i <= max_distance]
-    return pairs
+
+def iter_pairs(n: int, max_distance: int | None = None) -> Iterator[tuple[int, int]]:
+    """Generate only eligible pairs, in destination/source reading order."""
+    for j in range(n):
+        start = 0 if max_distance is None else max(0, j - max_distance)
+        for i in range(start, j - 1):
+            yield i, j
+
+
+def plan_pairs(n: int, max_distance: int | None = None) -> list[tuple[int, int]]:
+    """Materialized plan for inspection; inference uses the streaming iterator."""
+    return list(iter_pairs(n, max_distance))
 
 
 class GraftPairwiseEdgeInferrer(EdgeInferrer):
@@ -59,8 +70,13 @@ class GraftPairwiseEdgeInferrer(EdgeInferrer):
                 edges=[], stats={"inferrer": self.name, "llm_calls": 0, "n_planned_calls": 0}
             )
 
-        pairs = plan_pairs(n, self.graph_settings.max_pair_distance)
-        self._check_budget(n, len(pairs))
+        n_pairs = count_pairs(n, self.graph_settings.max_pair_distance)
+        print(
+            f"Edge plan [{ordered[0].doc_id}]: {n} segments, {n_pairs} decisions "
+            "(before cache lookup).", file=sys.stderr,
+        )
+        self._check_budget(n, n_pairs)
+        pairs = iter_pairs(n, self.graph_settings.max_pair_distance)
 
         # Predecessor edges are unconditional in GRAFT and cost nothing, so
         # they are built first: if the budget check above had raised, no call
@@ -100,7 +116,7 @@ class GraftPairwiseEdgeInferrer(EdgeInferrer):
             edges=edges,
             stats={
                 "inferrer": self.name,
-                "n_planned_calls": len(pairs),
+                "n_planned_calls": n_pairs,
                 "llm_calls": calls,
                 "llm_cache_hits": cache_hits,
                 "decisions_yes": yes_count,
@@ -110,7 +126,7 @@ class GraftPairwiseEdgeInferrer(EdgeInferrer):
                 # context, eroding what a bounded discourse-graph context (D1)
                 # is meant to buy over that. Reported on every run so the
                 # finding arrives before the ablation (M4) is designed.
-                "yes_rate": round(yes_count / len(pairs), 4) if pairs else 0.0,
+                "yes_rate": round(yes_count / n_pairs, 4) if n_pairs else 0.0,
                 "n_predecessor_edges": n - 1,
                 "prompt_version": self.graph_settings.prompt_version,
             },
