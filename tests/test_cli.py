@@ -64,6 +64,13 @@ def test_translate_runs_the_dag_condition(workspace, tmp_path):
     results = json.loads((tmp_path / "runs" / "t-dag" / "results.json").read_text())
     assert results["corpus"]["n_docs"] == 1
     assert results["calls"]["calls"] > 0
+    base = tmp_path / "runs" / "t-dag" / "documents" / "circular_01"
+    records = json.loads((base / "records.json").read_text())
+    memories = json.loads((base / "memories.json").read_text())
+    contexts = json.loads((base / "memory_contexts.json").read_text())
+    assert len(records) == len(memories) == len(contexts)
+    assert all(r["context_strategy"] == "graft_baseline" for r in records)
+    assert "memory_extraction" in results["calls"]["by_purpose"]
 
 
 @pytest.mark.parametrize("direction", [("si", "ta"), ("ta", "si")])
@@ -86,7 +93,7 @@ def test_compare_produces_one_table(workspace, tmp_path):
         "--max-docs", "1", "--run-id", "cmp",
     )
     table = (tmp_path / "runs" / "cmp" / "comparison.md").read_text()
-    assert "D1_dag_context" in table
+    assert "graft_baseline" in table
     payload = json.loads((tmp_path / "runs" / "cmp" / "comparison.json").read_text())
     assert len(payload["conditions"]) == 1
 
@@ -278,3 +285,19 @@ def test_check_llm_never_prints_a_key(workspace, monkeypatch):
     out = run("check-llm", "--config", str(workspace)).output
     assert "secret-key-value-here" not in out
     assert "set (21 chars)" in out
+
+
+def test_main_reports_edge_budget_without_traceback(monkeypatch, capsys):
+    from mats_stod import cli
+    from mats_stod.graph.graft_edges import PairwiseCallBudgetError
+
+    def blocked():
+        raise PairwiseCallBudgetError('planned 4851, ceiling 4000; set max_pair_distance')
+
+    monkeypatch.setattr(cli, 'app', blocked)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    stderr = capsys.readouterr().err
+    assert 'Run stopped' in stderr and 'max_pair_distance' in stderr
+    assert 'Traceback' not in stderr

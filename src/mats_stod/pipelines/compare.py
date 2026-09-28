@@ -1,10 +1,4 @@
-"""DAG-context condition run, scored and tabulated.
-
-Kept as its own pipeline (rather than folded into `dag_translate.py`) so a
-future condition (a different `dag_context_depth`, an ablation on
-`graph.transitive_reduction`) can be added here and compared without
-touching the single-condition `translate` command.
-"""
+"""Score and tabulate the configured baseline or raw-context condition."""
 
 from __future__ import annotations
 
@@ -21,8 +15,8 @@ from ..io.runs import RunDir
 from ..llm.client import CachedLLM
 from ..llm.ledger import CallLedger
 from .dag_translate import (
-    STRATEGY_NAME,
     checkpoint_path,
+    strategy_name,
     translate_document,
     write_document_artifacts,
 )
@@ -40,6 +34,9 @@ class ConditionResult:
     tokens_out: int
     latency_s: float
     flagged_segments: int
+    logical_requests: int = 0
+    provider_calls: int = 0
+    calls_by_purpose: dict[str, Any] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
 
@@ -49,12 +46,15 @@ def run_condition(
     llm: CachedLLM,
     run: RunDir,
 ) -> ConditionResult:
-    """Run the DAG-context condition and score it."""
+    """Run the configured condition and score completed documents only."""
     # A fresh ledger slice so this condition's counts are attributed correctly
     # even though it shares the run's cache with anything else in the run.
     before = len(llm.ledger.calls)
+    requests_before = len(llm.ledger.request_purposes)
+    providers_before = len(llm.ledger.provider_purposes)
 
-    sub = run.subdir(f"conditions/{STRATEGY_NAME}")
+    condition = strategy_name(settings)
+    sub = run.subdir(f"conditions/{condition}")
     cond_run = RunDir(sub, settings, dry_run=run.dry_run)
 
     hyps: list[str] = []
@@ -64,7 +64,13 @@ def run_condition(
 
     with SqliteSaver.from_conn_string(str(checkpoint_path(cond_run))) as checkpointer:
         for pair in pairs:
-            result = translate_document(pair, settings, llm, checkpointer)
+            try:
+                result = translate_document(pair, settings, llm, checkpointer)
+            except Exception as exc:
+                cond_run.log("document_failed", doc_id=pair.doc_id,
+                             condition=settings.translation.condition,
+                             error_type=type(exc).__name__, error=str(exc))
+                raise
             write_document_artifacts(cond_run, result)
             hyps.append(result.output_text)
             refs.append(result.reference_text)
@@ -79,7 +85,7 @@ def run_condition(
     slice_ledger = CallLedger(calls=llm.ledger.calls[before:])
 
     return ConditionResult(
-        name=STRATEGY_NAME,
+        name=condition,
         chrf=corpus.chrf,
         bleu=corpus.bleu,
         n_docs=len(pairs),
@@ -89,6 +95,9 @@ def run_condition(
         tokens_out=slice_ledger.tokens_out_total,
         latency_s=round(slice_ledger.latency_s_total, 2),
         flagged_segments=flagged,
+        logical_requests=len(llm.ledger.request_purposes) - requests_before,
+        provider_calls=len(llm.ledger.provider_purposes) - providers_before,
+        calls_by_purpose=slice_ledger.by_purpose(),
         notes=[],
     )
 
@@ -101,8 +110,9 @@ def render_comparison(
             r.name,
             r.chrf,
             r.bleu,
-            r.calls,
+            r.logical_requests,
             r.cache_hits,
+            r.provider_calls,
             r.tokens_in,
             r.tokens_out,
             r.latency_s,
@@ -115,8 +125,9 @@ def render_comparison(
             "condition",
             "chrF++",
             "BLEU",
-            "calls",
+            "logical requests",
             "cached",
+            "provider calls",
             "tokens in",
             "tokens out",
             "latency s",
@@ -131,6 +142,16 @@ def render_comparison(
         f"Documents: {results[0].n_docs if results else 0}.\n",
         body,
     ]
+    lines.append("Provider calls count adapter invocations; internal SDK/adapter retries "
+                 "are not counted separately.\n")
+    for result in results:
+        lines.append(f"\nCompleted calls by purpose: {result.name}\n")
+        lines.append(_table(
+            ["purpose", "calls", "cache hits", "tokens in", "tokens out"],
+            [[purpose, counts["calls"], counts["cached"],
+              counts["tokens_in"], counts["tokens_out"]]
+             for purpose, counts in sorted(result.calls_by_purpose.items())],
+        ))
     notes = [n for r in results for n in r.notes]
     if notes:
         lines.append("\n## Notes\n")

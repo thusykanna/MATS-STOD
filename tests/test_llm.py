@@ -106,3 +106,26 @@ def test_ledger_summary_reports_calls_and_tokens():
     assert summary["calls"] == 1
     assert summary["cache_hits"] == 0
     assert summary["tokens_in_billed"] == 1_000_000
+
+
+def test_accounting_counts_cache_and_failed_provider_attempts(settings):
+    from mats_stod.llm.base import LLMError
+    from mats_stod.llm.factory import build_llm
+    from mats_stod.llm.fake import FakeLLM
+
+    def respond(messages, params):
+        if messages[0].content == 'fail':
+            raise LLMError('failed')
+        return 'yes'
+
+    settings.llm.use_cache = True
+    llm = build_llm(settings, provider=FakeLLM(responder=respond))
+    llm.complete([Message('user', 'ok')])
+    llm.complete([Message('user', 'ok')])
+    with pytest.raises(LLMError):
+        llm.complete([Message('user', 'fail')])
+    counts = llm.ledger.summary()
+    assert counts['logical_requests'] == 3
+    assert counts['provider_calls'] == 2
+    assert counts['cache_hits'] == 1
+    assert counts['calls'] == 2  # successful responses only

@@ -51,6 +51,7 @@ class CachedLLM:
         purpose: str = "generic",
         **params: Any,
     ) -> LLMResponse:
+        self.ledger.request_purposes.append(purpose)
         key = cache_key(self.provider.provider, self.provider.model, messages, schema, params)
 
         if self.cache is not None:
@@ -70,6 +71,7 @@ class CachedLLM:
             )
 
         started = time.perf_counter()
+        self.ledger.provider_purposes.append(purpose)
         response = self.provider.complete(messages, schema=schema, **params)
         response.latency_s = time.perf_counter() - started
         response.cached = False
@@ -100,3 +102,12 @@ class CachedLLM:
             return False
         key = cache_key(self.provider.provider, self.provider.model, messages, schema, params)
         return self.cache.get(key) is not None
+
+    def discard_invalid(
+        self, messages: list[Message], schema: dict[str, Any] | None = None, **params: Any,
+    ) -> None:
+        """Do not let a schema-invalid cached response prevent checkpoint recovery."""
+        if self.cache is not None:
+            self.cache.discard(cache_key(
+                self.provider.provider, self.provider.model, messages, schema, params,
+            ))

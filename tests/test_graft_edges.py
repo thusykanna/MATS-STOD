@@ -186,3 +186,29 @@ def test_yes_rate_is_reported_because_a_dense_graph_collapses_d1(settings) -> No
     result, _fake, _llm = run(settings, "yes", 6)
     assert result.stats["yes_rate"] == 1.0
     assert result.stats["n_planned_calls"] == 10
+
+
+@pytest.mark.parametrize('n', [0, 1, 2, 4, 50])
+@pytest.mark.parametrize('distance', [None, 0, 1, 2, 4, 100])
+def test_count_matches_bounded_pairs(n, distance):
+    from mats_stod.graph.graft_edges import count_pairs
+    assert count_pairs(n, distance) == len(plan_pairs(n, distance))
+
+
+def test_budget_is_checked_before_enumerating_pairs(settings, monkeypatch):
+    from mats_stod.graph import graft_edges
+    settings.graph.max_pairwise_calls_per_doc = 1
+    monkeypatch.setattr(graft_edges, 'iter_pairs',
+                        lambda *args: pytest.fail('must check budget before enumeration'))
+    fake = FakeLLM(default='yes')
+    with pytest.raises(PairwiseCallBudgetError):
+        GraftPairwiseEdgeInferrer(settings, build_llm(settings, provider=fake)).infer(segments(100))
+    assert fake.call_count == 0
+
+
+def test_distance_limited_large_plan_does_not_enumerate_all_pairs():
+    from itertools import islice
+
+    from mats_stod.graph.graft_edges import count_pairs, iter_pairs
+    assert count_pairs(1_000_000, 2) == 999_998
+    assert list(islice(iter_pairs(1_000_000, 2), 3)) == [(0, 2), (1, 3), (2, 4)]

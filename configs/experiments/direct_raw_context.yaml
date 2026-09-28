@@ -1,0 +1,7 @@
+# Use the baseline graph but supply direct-parent source/translation passages.
+run_name: direct_raw_context
+translation:
+  condition: dag_raw_context
+  dag_context_depth: 1
+graph:
+  max_parents: 0

@@ -74,7 +74,8 @@ class GraftDiscourseSegmenter(Segmenter):
                     candidate = group[j]
                     start = current[0].span.char_start
                     end_if_added = candidate.span.char_end
-                    if end_if_added - start > self.seg_settings.max_discourse_chars:
+                    if (self.seg_settings.max_discourse_chars is not None
+                            and end_if_added - start > self.seg_settings.max_discourse_chars):
                         # Hard cap: one runaway chain of "yes" answers must not
                         # swallow the document.
                         forced_by_cap += 1

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -101,7 +101,7 @@ class SegmentationSettings(BaseModel):
     #: GRAFT's max_discourse_length analogue: a hard cap that forces a
     #: boundary regardless of what the LLM answers, so one runaway "yes" chain
     #: cannot swallow a document.
-    max_discourse_chars: int = 2048
+    max_discourse_chars: int | None = Field(default=None, gt=0)
     merge_short_blocks: bool = True
     split_long_blocks: bool = True
     #: Segment types that are never grown across by the GRAFT segmenter.
@@ -123,13 +123,14 @@ class SegmentationSettings(BaseModel):
 
 class GraphSettings(BaseModel):
     edge_types: list[str] = Field(default_factory=lambda: list(EDGE_TYPES))
-    max_parents: int = 4
+    max_parents: int = 0
+    parent_selection: Literal["nearest_by_order"] = "nearest_by_order"
     #: GRAFT's edge agent is quadratic. This is the per-document ceiling on
     #: pairwise calls; exceeding it aborts rather than silently spending the
     #: token budget.
-    max_pairwise_calls_per_doc: int = 4000
+    max_pairwise_calls_per_doc: int = Field(default=4000, ge=0)
     #: null keeps GRAFT faithful (every earlier segment is a candidate).
-    max_pair_distance: int | None = None
+    max_pair_distance: int | None = Field(default=None, ge=0)
     transitive_reduction: bool = False
     prompt_version: str = "edge_v1"
     #: GRAFT's edge agent answers in one word. The cap is a little larger so a
@@ -164,20 +165,29 @@ class ProtectSettings(BaseModel):
 
 
 class TranslationSettings(BaseModel):
+    condition: Literal["graft_baseline", "dag_raw_context"] = "graft_baseline"
     prompt_version: str = "translate_v1"
     domain_note: str = "Official government document. Formal register."
     #: Rough characters-per-token for Sinhala/Tamil used only for budgeting
     #: decisions, never for reported token counts.
-    chars_per_token_estimate: float = 2.5
+    chars_per_token_estimate: float = Field(default=2.5, gt=0)
     #: Token budget for the context shown alongside a segment. The furthest
     #: (earliest-order) ancestor is dropped first until the rendered context
     #: fits.
-    context_token_budget: int = 2000
+    context_token_budget: int = Field(default=2000, ge=0)
     #: How many hops up the discourse graph's parent edges a segment's
     #: context reaches (DiscourseGraph.ancestors' max_depth).
-    dag_context_depth: int = 2
+    dag_context_depth: int = Field(default=2, ge=0)
     retry_on_parse_failure: int = 1
     protect: ProtectSettings = Field(default_factory=ProtectSettings)
+
+
+class MemorySettings(BaseModel):
+    prompt_version: str = "memory_v1"
+    max_output_tokens: int = Field(default=4096, gt=0)
+    retry_on_parse_failure: int = Field(default=1, ge=0)
+    # Operational estimate for complete input + reserved output, not truncation.
+    request_token_limit: int = Field(default=32000, gt=0)
 
 
 class EvaluationSettings(BaseModel):
@@ -210,6 +220,7 @@ class Settings(BaseModel):
     segmentation: SegmentationSettings = Field(default_factory=SegmentationSettings)
     graph: GraphSettings = Field(default_factory=GraphSettings)
     translation: TranslationSettings = Field(default_factory=TranslationSettings)
+    memory: MemorySettings = Field(default_factory=MemorySettings)
     evaluation: EvaluationSettings = Field(default_factory=EvaluationSettings)
     paths: PathSettings = Field(default_factory=PathSettings)
 

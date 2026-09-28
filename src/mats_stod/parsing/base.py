@@ -33,16 +33,4 @@ def build_parser(name: str) -> LayoutParser:
         from .plaintext import PlainTextParser
 
         return PlainTextParser()
-    if name in {"markdown", "md"}:
-        from .formats import MarkdownParser
-
-        return MarkdownParser()
-    if name == "pdf":
-        from .formats import PdfParser
-
-        return PdfParser()
-    if name == "docx":
-        from .formats import DocxParser
-
-        return DocxParser()
     raise ValueError(f"unknown parser: {name!r}")

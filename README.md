@@ -15,7 +15,7 @@ Translation*, EMNLP 2025 Industry Track, [arXiv
 | Stage | What it covers | State |
 |---|---|---|
 | M0 | Scaffold, schemas, LLM cache, call ledger, metrics, reports | Done |
-| M1 | DAG-context translation (D1), orchestrated with LangGraph | Done |
+| M1 | GRAFT memory translation, checkpointed with LangGraph | Done |
 | M2 | Segmentation: GRAFT discourse agent | Done |
 | M3 | Edge inference (GRAFT) and DAG assembly | Done |
 | M4 | An ablation comparing `dag_context_depth` and graph settings | Not started |
@@ -322,7 +322,7 @@ to verify access to the configured model and region.
 
 | Command | Purpose |
 |---|---|
-| `translate` | Translate under the DAG-context condition (D1) |
+| `translate` | Translate with GRAFT memory (default) or the configured raw-context condition |
 | `compare` | Run the DAG-context condition, write a results table |
 | `segment` | Segment with GRAFT and score against gold |
 | `build-graph` | Build the discourse graph with GRAFT, score against gold |
@@ -342,29 +342,86 @@ Direction is set with `--source` and `--target`, or by an experiment overlay:
 
 ```bash
 uv run mats-stod translate --source ta --target si
-uv run mats-stod translate --experiment configs/experiments/cap_4.yaml
+uv run mats-stod translate --experiment configs/experiments/raw_context.yaml
 ```
 
-## The DAG-context condition (D1)
+## GRAFT memory baseline
 
-`translate` and `compare` run one condition: `D1_dag_context`. A document is
-segmented with GRAFT, its discourse graph is built exactly as `build-graph`
-builds it, and translation then runs as a LangGraph state graph whose nodes
-and edges mirror that discourse graph one for one: a segment's node fires
-only once every segment it depends on has already been translated, and
-receives those translations as its context (`translation.dag_context_depth`
-hops up the graph's parent edges, budgeted by `translation.context_token_budget`).
-Segments with no dependency relationship between them fall into the same
-LangGraph superstep and translate concurrently.
+`translate` and `compare` default to `graft_baseline`. After segmentation and
+graph construction, each discourse is translated in reading order, then its
+local memory is extracted. The next discourse uses memories from its direct
+graph predecessors. No human reference translation enters either prompt.
 
-LangGraph is used only here (DECISIONS.md D25): progress is checkpointed to
-`checkpoints.sqlite` inside the run directory, keyed by document, so a run
-interrupted partway through resumes from its last completed segment when
-re-invoked with the same `--run-id` rather than re-translating the document.
+The Memory Agent returns five validated components: noun–pronoun mappings,
+source/target entity mappings, phrase mappings, discourse connective mappings,
+and a short target-language summary. One structured request extracts all five
+from the source discourse and its completed translation.
 
-An ablation over `dag_context_depth`, `graph.max_parents` and
-`graph.transitive_reduction` is the natural next comparison and is not part
-of this stage (see M4 in Status).
+The baseline retains all approved forward edges and automatic neighbor links:
+`max_parents: 0`, `max_pair_distance: null`, `transitive_reduction: false`.
+Conflicting graph settings are rejected, not silently relabeled as a baseline.
+Discourse growth has no character cap by default. Sentence-span preservation,
+Sinhala/Tamil sentence rules, and official-document prompts remain adaptations.
+
+Direct-parent memories are merged in reading order. Exact source keys are
+deduplicated within each component; the earliest value wins a conflict.
+Every retained mapping identifies its originating segment. All parent summaries
+are retained. Conflicting later values are recorded outside the prompt for audit.
+This exact-key merge is our documented interpretation of earlier-memory priority.
+
+`dag_context_depth` and `context_token_budget` apply only to `dag_raw_context`.
+Baseline memory is never silently truncated. `memory.request_token_limit` is an
+operational guard on estimated prompt tokens plus reserved output, for translation
+and memory requests. It uses the configured character ratio, excludes API/schema
+overhead, and is not an exact model tokenizer. Leave headroom; oversized requests
+fail explicitly. Invalid memory and unparseable baseline translations also fail
+after bounded retries rather than continuing with empty memory or raw output.
+
+Before edge requests, the CLI shows the document's planned decision count.
+Plans are counted before enumeration and streamed; distance-bounded plans never
+allocate all pairs. The default 4,000-decision ceiling stops a 100-segment
+all-pairs document (4,851 decisions) before edge requests, although segmentation
+has already run. The batch fails fast: it does not silently exclude documents
+or publish an aggregate over an incomplete batch. Earlier artifacts may remain.
+Raise the ceiling explicitly to continue the baseline; a distance bound is an
+ablation and requires selecting the raw-context condition.
+
+LangGraph checkpoints translation and memory extraction as separate stages in
+`checkpoints.sqlite`. If memory extraction fails, the completed translation is
+reused on resume. Schema-invalid translation/memory responses are evicted from the cache,
+so they cannot permanently block retries. Reuse the same `--run-id` to
+resume unchanged work. Fingerprints validate source text, settings, provider,
+model, prompt contents, execution version, and the rebuilt graph. Legacy or
+incompatible checkpoints require a **fresh run ID**. Changed run settings are
+rejected before overwriting saved configuration or provenance. Graph rebuilding
+still occurs on resume; its model requests can use the cache.
+
+Reports distinguish logical requests, cache hits, completed responses, and
+provider adapter calls (including failed adapter invocations). Internal adapter
+or SDK retries are not counted separately. A translation parse retry is a new
+logical request. Counts describe this invocation, not cumulative checkpoint
+history. `calls` in JSON remains the completed-response count for compatibility.
+
+Artifacts include `memories.json`, `memory_contexts.json`, `records.json`, and
+the graph. They preserve local memories, the merged context, conflicts, prompts,
+and provenance. Call reports separate memory extraction from translation.
+
+**Migration:** use a fresh run ID; prior raw-context checkpoints are incompatible.
+See [CODEBASE_GUIDE.md](CODEBASE_GUIDE.md) for the code map and
+[README_WINDOWS.md](README_WINDOWS.md) for PowerShell examples.
+
+The implementation follows the mechanism in
+[GRAFT §3](https://arxiv.org/html/2507.03311v1#S3), not an exact reproduction of
+its scores or prompts. The linked reference repository was unavailable during
+implementation. JSON schema, combined extraction request, exact-key merging,
+and the request ceiling are explicit local choices; see the guide.
+
+For later comparisons, `configs/experiments/direct_raw_context.yaml` uses the
+unpruned graph with direct-parent raw passages, while `raw_context.yaml` restores
+the prior capped, depth-2 approach. `compare` scores one configured condition per
+invocation. Use the same corpus, model, and cached graph decisions with distinct
+run IDs. Verify exported graph equality when isolating memory's effect; the
+prior raw overlay also changes segmentation limits and parent pruning.
 
 ## Segmentation
 
@@ -429,9 +486,10 @@ in Sinhala and dropping it from ශ්‍රී produces a different word.
 - **No learned metric.** A `LearnedMetric` protocol exists; COMET is not
   installed, because it needs a model this machine cannot host and is not
   validated for Sinhala–Tamil.
-- **GRAFT's memory agent is not implemented**, and neither are entity or
-  terminology handling, the evaluation and correction agent, or Stage 3 review
-  and document writing. Each has an interface stub.
+- **Memory extraction can be wrong.** Schema validation checks structure, not
+  semantic correctness. Memory and earlier-value conflict resolution still need
+  evaluation on Sinhala–Tamil documents. Automatic correction and document review
+  are not implemented.
 - **The GRAFT edge agent is quadratic.** M3 will need the per-document call
   ceiling (`graph.max_pairwise_calls_per_doc`) set against real document
   lengths before it runs on the real corpus.
@@ -449,7 +507,7 @@ src/mats_stod/
   io/               loaders, NFC normalisation, run directories, fixed split
   llm/              LLMClient, Gemini provider, cache, call ledger, FakeLLM
   prompts/          versioned .jinja templates, never inline strings
-  parsing/          LayoutParser interface, PlainTextParser, deferred stubs
+  parsing/          LayoutParser interface and PlainTextParser
   segmentation/     sentence splitter, GRAFT discourse segmenter
   graph/            structural + GRAFT pairwise edges, assembly, export
   translation/      graph-derived context, translator, line-break masking, protected-content checks

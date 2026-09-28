@@ -205,3 +205,18 @@ def test_report_says_so_when_no_model_was_called(settings):
 
     results = build_results(settings, [], None, None)
     assert "no LLM calls" in results["model"]
+
+
+def test_reusing_run_preserves_provenance_and_rejects_changed_settings(settings):
+    from mats_stod.io.runs import RunConfigurationError
+
+    run = RunDir.create(settings, 'test', run_id='fixed')
+    original_meta = (run.path / 'run_meta.json').read_bytes()
+    original_config = (run.path / 'config_used.yaml').read_bytes()
+    RunDir.create(settings, 'test', run_id='fixed')
+    assert (run.path / 'run_meta.json').read_bytes() == original_meta
+    settings.translation.dag_context_depth += 1
+    with pytest.raises(RunConfigurationError, match='fresh --run-id'):
+        RunDir.create(settings, 'test', run_id='fixed')
+    assert (run.path / 'run_meta.json').read_bytes() == original_meta
+    assert (run.path / 'config_used.yaml').read_bytes() == original_config
