@@ -37,6 +37,7 @@ class AssemblyStats:
     dropped_transitive: int = 0
     n_forward_refs: int = 0
     parent_cap_rule: str = PARENT_CAP_RULE
+    dropped_parent_ids: dict[str, list[str]] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
@@ -50,6 +51,7 @@ class AssemblyStats:
             "dropped_transitive": self.dropped_transitive,
             "n_forward_refs": self.n_forward_refs,
             "parent_cap_rule": self.parent_cap_rule,
+            "dropped_parent_ids": self.dropped_parent_ids,
         }
         out.update(self.extra)
         return out
@@ -67,7 +69,7 @@ def assemble_graph(
     `raw_text` is passed through to validation so invariant 1 is checked
     against the real characters whenever the document is at hand.
     """
-    stats = AssemblyStats(n_proposed=len(proposed))
+    stats = AssemblyStats(n_proposed=len(proposed), parent_cap_rule=settings.graph.parent_selection)
     order_of = {s.seg_id: s.order for s in segments}
 
     edges, forward_refs = _split_by_direction(proposed, order_of, stats)
@@ -148,9 +150,9 @@ def _cap_parents(
 ) -> list[Edge]:
     """Keep at most `max_parents` parents per segment, nearest first.
 
-    The cap exists because context is budgeted: a segment with eleven parents
-    cannot fit them all into the prompt, and truncating inside the prompt
-    builder would make the graph and the context silently disagree.
+    This caps direct dependencies, not the number of ancestors selected for
+    context. Ancestor selection and whole-segment context budgeting happen
+    separately; all cap removals are recorded by destination.
     """
     if max_parents is None or max_parents <= 0:
         return edges
@@ -170,6 +172,9 @@ def _cap_parents(
                 continue
             if len(kept_parents) >= max_parents:
                 stats.dropped_parent_cap += 1
+                dropped = stats.dropped_parent_ids.setdefault(e.dst, [])
+                if e.src not in dropped:
+                    dropped.append(e.src)
                 continue
             kept_parents.append(e.src)
             keep.add(id(e))
@@ -179,10 +184,9 @@ def _cap_parents(
 def _transitive_reduction(edges: list[Edge], stats: AssemblyStats) -> list[Edge]:
     """Remove edges implied by a longer path through the graph.
 
-    Off by default. It makes the picture readable, but it deletes exactly the
-    short-range edges a sliding window would already have supplied, which
-    changes what D1 is being credited for. Turn it on as an ablation, not as
-    tidying.
+    Off by default. With the complete predecessor chain, shortcut edges
+    disappear. Reachability stays the same but hop distances change, so
+    bounded-depth context changes. Treat this as an ablation, not tidying.
     """
     import networkx as nx
 

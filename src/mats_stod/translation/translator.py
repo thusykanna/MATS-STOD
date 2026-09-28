@@ -11,13 +11,14 @@ from __future__ import annotations
 import time
 
 from ..config import Settings
-from ..llm.base import Message, ParseError, parse_json_response
+from ..llm.base import LLMError, Message, ParseError, parse_json_response
 from ..llm.client import CachedLLM
 from ..prompts.registry import render
 from ..schemas import Segment, TranslationRecord
 from . import protect
 from .context import ContextBlock
 from .linebreaks import LINEBREAK_TOKEN, mask_linebreaks, unmask_linebreaks
+from .memory import check_request_capacity
 
 #: Structured-output schema. Providers that support it are constrained; the
 #: others still see the instruction in the prompt.
@@ -44,6 +45,7 @@ class Translator:
             context_block=context.text,
             segment=source_text,
             linebreak_token=LINEBREAK_TOKEN,
+            context_mode=self.settings.translation.condition,
         )
 
     def translate_segment(
@@ -80,7 +82,15 @@ class Translator:
             cached=cached,
             latency_s=round(elapsed, 3),
             flags=flags,
-            metadata={"context_truncated": context.truncated},
+            metadata={
+                "context_truncated": context.truncated,
+                "context_selected_seg_ids": context.selected_seg_ids,
+                "context_dropped_seg_ids": context.dropped_seg_ids,
+                "context_estimated_tokens_before": context.estimated_tokens_before,
+                "context_estimated_tokens_after": context.estimated_tokens_after,
+                "context_empty_reason": context.empty_reason,
+                "prompt": prompt,
+            },
         )
 
     def _call_with_retry(self, prompt: str) -> tuple[str, int, int, bool, list[str]]:
@@ -104,6 +114,8 @@ class Translator:
                     + '\n\nYour previous answer could not be parsed. Return only a JSON '
                     'object of the form {"translation": "..."}.'
                 )
+            if self.settings.translation.condition == "graft_baseline":
+                check_request_capacity(body, self.settings.llm.max_output_tokens, self.settings)
             response = self.llm.complete(
                 [Message("user", body)],
                 schema=TRANSLATION_SCHEMA,
@@ -122,9 +134,17 @@ class Translator:
                 raise ParseError("translation value is empty")
             except ParseError as exc:
                 flags.append(f"parse_failure_attempt_{attempt + 1}: {exc}")
+                if self.settings.translation.condition == "graft_baseline":
+                    self.llm.discard_invalid(
+                        [Message("user", body)], schema=TRANSLATION_SCHEMA,
+                        max_output_tokens=self.settings.llm.max_output_tokens,
+                        temperature=self.settings.llm.temperature,
+                    )
 
         # Every attempt failed to produce JSON. Fall back to the raw text so
         # the pipeline continues and the failure is visible in the record,
         # rather than losing the document to an exception.
         flags.append("fell_back_to_raw_text")
+        if self.settings.translation.condition == "graft_baseline":
+            raise LLMError("Baseline translation failed JSON validation; refusing raw fallback.")
         return last_text.strip(), tokens_in, tokens_out, cached, flags

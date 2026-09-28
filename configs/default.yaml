@@ -28,7 +28,7 @@ llm:
 segmentation:
   min_segment_chars: 40
   max_segment_chars: 1200
-  max_discourse_chars: 2048
+  max_discourse_chars: null  # baseline growth is decided by the discourse agent
   merge_short_blocks: true
   split_long_blocks: true
   atomic_types: [heading, list_item, table_cell, caption]
@@ -49,13 +49,15 @@ graph:
   edge_types:
     [structural_parent, coreference, entity_introduction,
      term_definition, cross_reference, continuation, graft_dependency]
-  max_parents: 4
+  max_parents: 0             # baseline retains all approved forward edges
+  parent_selection: nearest_by_order
   max_pairwise_calls_per_doc: 4000
   max_pair_distance: null   # null = faithful GRAFT (all earlier segments)
   transitive_reduction: false
   prompt_version: edge_v1
 
 translation:
+  condition: graft_baseline # dag_raw_context is the explicit comparison condition
   prompt_version: translate_v1
   domain_note: "Official government document. Formal register. Preserve numbers, dates and reference codes exactly."
   chars_per_token_estimate: 2.5
@@ -68,6 +70,12 @@ translation:
     patterns:
       - '\d[\d,./-]*'
       - '[A-Z]{2,}(?:/[A-Z0-9]+)+'
+
+memory:
+  prompt_version: memory_v1
+  max_output_tokens: 4096
+  retry_on_parse_failure: 1
+  request_token_limit: 32000 # estimated complete input + reserved output; fail, never truncate
 
 evaluation:
   primary_metric: chrf++

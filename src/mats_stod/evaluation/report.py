@@ -154,13 +154,16 @@ def render_report(results: dict[str, Any], settings: Settings) -> str:
             _table(
                 ["measure", "value"],
                 [
-                    ["LLM calls", calls["calls"]],
+                    ["logical requests", calls.get("logical_requests", calls["calls"])],
+                    ["completed responses", calls["calls"]],
+                    ["provider calls", calls.get("provider_calls", "not recorded")],
                     ["cache hits", calls["cache_hits"]],
                     ["tokens in (billed)", calls["tokens_in_billed"]],
                     ["tokens out (billed)", calls["tokens_out_billed"]],
                 ],
             )
         )
+        lines.append(calls.get("accounting_scope", "") + "\n")
         by_purpose = calls.get("by_purpose") or {}
         if by_purpose:
             lines.append("\nBy purpose:\n")

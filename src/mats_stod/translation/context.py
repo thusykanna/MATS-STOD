@@ -1,6 +1,6 @@
 """The DAG-context translation condition's context strategy.
 
-A segment's context is its parents in the discourse graph
+A segment's context is its selected ancestors in the discourse graph
 (`DiscourseGraph.ancestors`), rendered as source/translation pairs so that
 consistency ties back to how earlier segments were actually rendered, not
 just what they said. Nearest ancestors are kept when the token budget is
@@ -24,6 +24,11 @@ class ContextBlock:
     text: str
     seg_ids: list[str] = field(default_factory=list)
     truncated: bool = False
+    selected_seg_ids: list[str] = field(default_factory=list)
+    dropped_seg_ids: list[str] = field(default_factory=list)
+    estimated_tokens_before: int = 0
+    estimated_tokens_after: int = 0
+    empty_reason: str | None = None
 
 
 def _pair_lines(
@@ -55,22 +60,31 @@ def build_dag_context(
 ) -> ContextBlock:
     """The context block for a segment: its discourse-graph ancestors.
 
-    `parent_ids` is expected in ascending reading order (as
-    `DiscourseGraph.parents`/`ancestors` return it), so dropping from the
-    front drops the furthest-back ancestor first until the block fits the
-    token budget.
+    `parent_ids` contains the ancestors selected by the caller. IDs are
+    deduplicated and sorted by reading order; the earliest whole ancestor
+    is dropped first until the block fits the estimated token budget.
     """
     if not parent_ids:
-        return ContextBlock(text="", seg_ids=[])
+        return ContextBlock(text="", seg_ids=[], empty_reason="no_selected_ancestors")
 
     budget = settings.translation.context_token_budget
     cpt = settings.translation.chars_per_token_estimate
-    kept = list(parent_ids)
+    selected = sorted(set(parent_ids), key=lambda sid: segments_by_id[sid].order)
+    kept = list(selected)
+    before = estimate_tokens("\n".join(_pair_lines(selected, segments_by_id, records)), cpt)
     truncated = False
     while kept:
         text = "\n".join(_pair_lines(kept, segments_by_id, records))
         if estimate_tokens(text, cpt) <= budget:
-            return ContextBlock(text=text, seg_ids=kept, truncated=truncated)
+            return ContextBlock(
+                text=text, seg_ids=kept, truncated=truncated,
+                selected_seg_ids=selected, dropped_seg_ids=selected[:len(selected) - len(kept)],
+                estimated_tokens_before=before, estimated_tokens_after=estimate_tokens(text, cpt),
+            )
         kept.pop(0)
         truncated = True
-    return ContextBlock(text="", seg_ids=[], truncated=truncated)
+    return ContextBlock(
+        text="", seg_ids=[], truncated=truncated, selected_seg_ids=selected,
+        dropped_seg_ids=selected, estimated_tokens_before=before,
+        empty_reason="context_budget_exhausted",
+    )
