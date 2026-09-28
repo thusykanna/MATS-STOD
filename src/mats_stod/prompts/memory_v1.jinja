@@ -7,7 +7,9 @@ Return one JSON object with all five required fields:
 - phrases: array of {"source": "source-language phrase", "target": "its actual rendering in the translation"}.
 - connectives: array of {"source": "source-language connective", "target": "its actual rendering in the translation"}.
 - summary: a concise one-line summary in {{ target_lang }}.
-Use empty arrays when the discourse supplies no evidence for a component.
+Return at most 10 salient, high-confidence entries in each array. Use empty
+arrays when the discourse supplies no evidence for a component; do not attempt
+to enumerate every phrase in a long segment.
 Never invent a pronoun, entity, phrase mapping or connective. The summary must be nonempty.
 
 Example (English to French):

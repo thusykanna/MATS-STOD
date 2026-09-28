@@ -185,6 +185,10 @@ class TranslationSettings(BaseModel):
 class MemorySettings(BaseModel):
     prompt_version: str = "memory_v1"
     max_output_tokens: int = Field(default=4096, gt=0)
+    #: Memory extraction is a bounded structured task. Disable Gemini's
+    #: optional reasoning so it cannot consume the response budget before the
+    #: JSON object is complete.
+    thinking_budget: int | None = 0
     retry_on_parse_failure: int = Field(default=1, ge=0)
     # Operational estimate for complete input + reserved output, not truncation.
     request_token_limit: int = Field(default=32000, gt=0)
