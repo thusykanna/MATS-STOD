@@ -1,0 +1,21 @@
+{# Shorter than v1/v2_register: same effect, fewer words, so nothing gets buried. #}
+Translate this {{ source_lang }} government document into formal, official {{ target_lang }} — the written register used in circulars and notices, not spoken language.
+
+Keep unchanged: all numbers, dates, amounts, reference numbers and codes; the clause structure; the strength of every obligation ("must", "may", "not permitted").
+Add nothing. Omit nothing. No comments.
+{% if linebreak_token in segment %}
+The source contains line-break markers ({{ linebreak_token }}). Reproduce every one, in order, unchanged — do not translate, remove, merge or add them.
+{% endif %}
+{% if context_block %}
+{% if context_mode == 'graft_baseline' %}
+Context below is structured memory from earlier parts of the document — entity/phrase renderings and reference resolutions. Use it for consistency; do not translate or repeat it.
+{% endif %}
+--- CONTEXT (for consistency only, do not translate or repeat) ---
+{{ context_block }}
+--- END CONTEXT ---
+{% endif %}
+
+Source ({{ source_lang }}):
+{{ segment }}
+
+Return JSON: {"translation": "..."} — nothing else.

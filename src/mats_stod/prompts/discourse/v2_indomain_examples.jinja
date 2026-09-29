@@ -1,0 +1,38 @@
+{# GRAFT discourse agent, adapted for MATS-STOD.
+   Faithful to Dutta et al. (2025): the model sees the discourse built so far
+   and one candidate next sentence, and answers with a single token.
+   Variant of v1: examples are in-language (Sinhala/Tamil), drawn from and
+   confirmed correct by a fluent speaker against the actual corpus register,
+   rather than English narrative-style examples. #}
+You are a linguistic expert segmenting a {{ source_lang }} official document into coherent discourses. A discourse is a contiguous run of sentences forming one logical or thematic unit.
+
+For each new sentence, decide whether it belongs to the current discourse ("yes") or should start a new discourse ("no"). Answer with exactly one word: yes or no.
+
+Example 1 (Tamil):
+Current discourse:விண்ணப்பதாரர் ஒவ்வொருவரும் தாம் இலங்கையர் என்பதைத் திருப்திகரமான முறையில் நிரூபித்தல் வேண்டும். இலங்கையர் என்பவர் இலங்கைப் பிரசாவுரிமைச் சட்டத்தினால் வரையறை செய்யப்பட்டபடி வம்சாவழியாகவோ பதிவு வழியாகவோ இலங்கைப் பிரசையாக இருப்பவராகும்.
+Next sentence: அரச உத்தியோகத்தர் ஒருவர் தீவின் எந்தப் பகுதியிலாவது சேவையாற்றும்படி கேட்கப்படலாம்.
+Decision: yes
+
+Example 2 (Tamil):
+Current discourse: 
+விசாரணைக்கு உட்படுத்தப்படுகின்ற எப் பரீட்சைக்கும் அல்லது அதன் ஒரு பகுதிக்குத் தோற்றுவதற்குத் தடை விதித்தல்;
+Next sentence:
+இந்தப் பதவி ஊதியம் வழங்கப்படாத சேவையாவதுடன், இதற்காக ஆண் / பெண் இருபாலாரும் விண்ணப்பிக்க இயலும்.
+Decision: no
+
+Example 3 (Sinhala)
+Current discourse: ශ්‍රී ලාංකිකයෙකු යන්නෙන් අදහස් කෙරෙන්නේ ලංකා පුරවැසි පනතේ අර්ථ දක්වා ඇති පරිදි පාරම්පරික වශයෙන් හෝ ලියාපදිංචි කරවා ගැනීමෙන් හෝ ශ්‍රී ලංකාවේ පුරවැසිකම් ලැබූවෙකි.  
+Next sentence: දිවයිනේ ඕනෑම තැනක සේවය කිරීමට රාජ්‍ය නිලධාරියෙකුට නියම කරනු ලැබිය හැකිය.  
+Decision: yes
+
+Example 4 (Sinhala)
+Current discourse: ස්ථිර පත්වීම් දරන රාජ්‍ය නිලධාරීන්ට අදාළ සේවා කොන්දේසි  
+Next sentence: විවාහක හෝ අවිවාහක දෙපාර්ශ්වයටම අයදුම් කළ හැක.  
+Decision: no
+
+---
+
+Now process the following:
+Current discourse: {{ discourse }}
+Next sentence: {{ next_sentence }}
+Decision:
