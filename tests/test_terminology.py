@@ -112,6 +112,26 @@ def test_experiment_settings_preserve_conditions(overlay, condition, enabled, de
     assert settings.graph.max_parents == parents
 
 
+@pytest.mark.parametrize("experiment,method", [
+    ("terminology_e0_llm_exact", "llm_exact"),
+    ("terminology_e1_python_scan", "python_scan"),
+    ("terminology_e2_llm_lookup_form", "llm_lookup_form"),
+    ("terminology_e3_hybrid", "hybrid"),
+])
+def test_terminology_experiment_overlays(experiment, method):
+    settings = load_settings(overlays=[f"configs/experiments/{experiment}.yaml"])
+    assert settings.run_name == experiment
+    assert settings.translation.condition == "graft_baseline"
+    assert settings.terminology.enabled is True
+    assert settings.terminology.method == method
+
+
+def test_default_terminology_method_and_comet():
+    settings = load_settings()
+    assert settings.terminology.method == "hybrid"
+    assert settings.evaluation.comet_enabled is True
+
+
 @pytest.mark.parametrize(
     "surface",
     [
@@ -219,8 +239,10 @@ def test_agent_candidates_drive_lookup_and_unmatched_terms_are_audit_only(settin
     source = "ගමන් වියදම් ප්‍රතිපූරණය සහ විශේෂ පදය"
     response = {
         "terms": [
-            {"surface": "ගමන් වියදම් ප්‍රතිපූරණය", "reason": "administrative term"},
-            {"surface": "විශේෂ පදය", "reason": "possible specialist term"},
+            {"surface": "ගමන් වියදම් ප්‍රතිපූරණය",
+             "lookup_form": "ගමන් වියදම් ප්‍රතිපූරණය", "reason": "administrative term"},
+            {"surface": "විශේෂ පදය", "lookup_form": "විශේෂ පදය",
+             "reason": "possible specialist term"},
         ]
     }
     llm = build_llm(settings, provider=FakeLLM(default=json.dumps(response, ensure_ascii=False)))
@@ -229,15 +251,106 @@ def test_agent_candidates_drive_lookup_and_unmatched_terms_are_audit_only(settin
     )
 
     assert [match.entry_id for match in record.matches] == ["gov-005"]
-    assert record.unmatched_candidates == ["විශේෂ පදය"]
+    assert [item.surface_form for item in record.unmatched_candidates] == ["විශේෂ පදය"]
     assert all(pair["source"] != "විශේෂ පදය" for pair in record.prompt_payload())
+
+
+def _candidate_response(surface, lookup_form):
+    return json.dumps({"terms": [{
+        "surface": surface, "lookup_form": lookup_form, "reason": "government term",
+    }]}, ensure_ascii=False)
+
+
+def test_e0_uses_surface_only_and_e2_recovers_lookup_form(settings):
+    source = "මුදල් අමාත්‍යාංශයට දන්වන්න."
+    response = _candidate_response("මුදල් අමාත්‍යාංශයට", "මුදල් අමාත්‍යාංශය")
+    settings.llm.use_cache = False
+    store = GlossaryStore.from_settings(settings)
+
+    settings.terminology.method = "llm_exact"
+    e0 = TerminologyAgent(
+        settings, build_llm(settings, provider=FakeLLM(default=response)), store
+    ).extract(segment(source))
+    assert e0.matches == []
+    assert [item.surface_form for item in e0.unmatched_candidates] == [
+        "මුදල් අමාත්‍යාංශයට"
+    ]
+
+    settings.terminology.method = "llm_lookup_form"
+    e2 = TerminologyAgent(
+        settings, build_llm(settings, provider=FakeLLM(default=response)), store
+    ).extract(segment(source))
+    assert len(e2.matches) == 1
+    assert e2.matches[0].entry_id == "gov-002"
+    assert e2.matches[0].source_surface == "මුදල් අමාත්‍යාංශයට"
+    assert e2.matches[0].lookup_form == "මුදල් අමාත්‍යාංශය"
+    assert e2.matches[0].resolution_methods == ["llm_lookup_form"]
+
+
+def test_e2_rejects_hallucinated_lookup_form(settings):
+    settings.terminology.method = "llm_lookup_form"
+    settings.llm.use_cache = False
+    source = "විශේෂ පදයට"
+    response = _candidate_response(source, "ග්ලොසරියේ නැති පදය")
+    record = TerminologyAgent(
+        settings,
+        build_llm(settings, provider=FakeLLM(default=response)),
+        GlossaryStore.from_settings(settings),
+    ).extract(segment(source))
+    assert record.matches == []
+    assert [item.surface_form for item in record.unmatched_candidates] == [source]
+
+
+def test_e1_has_no_llm_call_and_finds_repeated_terms(settings):
+    settings.terminology.method = "python_scan"
+    settings.llm.use_cache = False
+    llm = build_llm(settings, provider=FakeLLM(default="must not be called"))
+    term = "මුදල් අමාත්‍යාංශය"
+    record = TerminologyAgent(settings, llm, GlossaryStore.from_settings(settings)).extract(
+        segment(f"{term}; {term}")
+    )
+    matches = [match for match in record.matches if match.entry_id == "gov-002"]
+    assert len(matches) == 2
+    assert all(match.resolution_methods == ["python_substring"] for match in matches)
+    assert record.tokens_in == record.tokens_out == 0
+    assert record.prompt == ""
+    assert llm.ledger.calls == []
+
+
+def test_e3_combines_provenance_for_same_span(settings):
+    settings.terminology.method = "hybrid"
+    settings.llm.use_cache = False
+    term = "මුදල් අමාත්‍යාංශය"
+    llm = build_llm(settings, provider=FakeLLM(default=_candidate_response(term, term)))
+    record = TerminologyAgent(settings, llm, GlossaryStore.from_settings(settings)).extract(
+        segment(term)
+    )
+    assert len(record.matches) == 1
+    assert record.matches[0].resolution_methods == ["llm_surface_exact", "python_substring"]
+
+
+def test_llm_methods_share_cached_candidate_response(settings):
+    term = "මුදල් අමාත්‍යාංශය"
+    response = _candidate_response(term, term)
+    settings.llm.use_cache = True
+    llm = build_llm(settings, provider=FakeLLM(default=response))
+    store = GlossaryStore.from_settings(settings)
+    settings.terminology.method = "llm_exact"
+    first = TerminologyAgent(settings, llm, store).extract(segment(term))
+    settings.terminology.method = "llm_lookup_form"
+    second = TerminologyAgent(settings, llm, store).extract(segment(term))
+    assert first.prompt == second.prompt
+    assert first.cached is False
+    assert second.cached is True
+    assert llm.provider.call_count == 1
 
 
 def test_non_substring_candidates_retry_then_fail(settings):
     settings.terminology.enabled = True
     settings.terminology.retry_on_parse_failure = 1
     settings.llm.use_cache = False
-    bad = json.dumps({"terms": [{"surface": "invented", "reason": "not present"}]})
+    bad = json.dumps({"terms": [{"surface": "invented", "lookup_form": "invented",
+                                  "reason": "not present"}]})
     llm = build_llm(settings, provider=FakeLLM(responses=[bad, bad]))
 
     with pytest.raises(TerminologyExtractionError, match="not an exact source substring"):
@@ -252,6 +365,7 @@ def test_translation_prompt_gives_glossary_precedence_over_memory(settings):
     llm = build_llm(settings, provider=EchoLLM())
     term = TerminologyRecord(
         seg_id="s0",
+        extraction_method="hybrid",
         glossary_version="v1",
         glossary_hash="hash",
         model="fake",
@@ -261,11 +375,12 @@ def test_translation_prompt_gives_glossary_precedence_over_memory(settings):
                 "entry_id": "gov-002",
                 "definition": "finance ministry",
                 "source_surface": "මුදල් අමාත්‍යාංශය",
+                "lookup_form": "මුදල් අමාත්‍යාංශය",
                 "source_preferred": "මුදල් අමාත්‍යාංශය",
                 "target_preferred": "நிதி அமைச்சு",
                 "char_start": 0,
-                "char_end": 18,
-                "match_method": "deterministic",
+                "char_end": 17,
+                "resolution_methods": ["python_substring"],
                 "source_term_kind": "preferred",
             }
         ],

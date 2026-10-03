@@ -17,6 +17,7 @@ from .config import Settings, load_settings
 from .evaluation.comet_metric import add_comet_if_enabled
 from .evaluation.metrics import score_corpus, score_document
 from .evaluation.report import write_report
+from .evaluation.terminology import aggregate_terminology_scores
 from .io.env import credential_status, load_env_file
 from .io.parallel import (
     TranslationDiscovery,
@@ -251,6 +252,12 @@ def translate(
     run = RunDir.create(settings, prefix="translate-dag", run_id=run_id, dry_run=dry_run)
 
     hyps, refs, srcs, doc_scores = [], [], [], []
+    terminology_scores = []
+    terminology_operational = {
+        "candidates": 0, "matches": 0, "unmatched": 0, "latency_s": 0.0,
+        "resolution_methods": {},
+        "source_term_kinds": {},
+    }
     with SqliteSaver.from_conn_string(str(checkpoint_path(run))) as checkpointer:
         for pair in pairs:
             try:
@@ -261,6 +268,26 @@ def translate(
                         error_type=type(exc).__name__, error=str(exc))
                 raise
             write_document_artifacts(run, result)
+            if result.terminology_evaluation is not None:
+                terminology_scores.append(result.terminology_evaluation)
+            terminology_operational["candidates"] += result.stats.get(
+                "n_terminology_candidates", 0
+            )
+            terminology_operational["matches"] += result.stats.get("n_terminology_matches", 0)
+            terminology_operational["unmatched"] += result.stats.get(
+                "n_unmatched_terminology_candidates", 0
+            )
+            terminology_operational["latency_s"] += result.stats.get(
+                "terminology_latency_s", 0.0
+            )
+            for method_name, count in result.stats.get(
+                "terminology_resolution_methods", {}
+            ).items():
+                methods = terminology_operational["resolution_methods"]
+                methods[method_name] = methods.get(method_name, 0) + count
+            for kind, count in result.stats.get("terminology_source_term_kinds", {}).items():
+                kinds = terminology_operational["source_term_kinds"]
+                kinds[kind] = kinds.get(kind, 0) + count
             typer.echo(f"Translated: {pair.doc_id}")
             typer.echo(f"Output: {run.path / 'documents' / pair.doc_id / 'translation.txt'}")
             if result.reference_text is not None:
@@ -291,6 +318,9 @@ def translate(
         for r in run.read_json(f"documents/{p.doc_id}/records.json")
         for flag in r["flags"]
     ]
+    terminology_active = (
+        settings.translation.condition == "graft_baseline" and settings.terminology.enabled
+    )
     write_report(
         run,
         settings,
@@ -299,6 +329,20 @@ def translate(
         llm.ledger,
         extra={
             "flagged_segments": flagged,
+            "terminology_method": settings.terminology.method if terminology_active else None,
+            "terminology_evaluation": (
+                aggregate_terminology_scores(terminology_scores) if terminology_active else None
+            ),
+            "terminology_operational": ({
+                **terminology_operational,
+                "latency_s": round(terminology_operational["latency_s"], 6),
+                "resolution_methods": dict(sorted(
+                    terminology_operational["resolution_methods"].items()
+                )),
+                "source_term_kinds": dict(sorted(
+                    terminology_operational["source_term_kinds"].items()
+                )),
+            } if terminology_active else None),
             "input_summary": {
                 "input_directory": str(discovery.root),
                 "discovered_folders": discovery.discovered_count,
@@ -321,10 +365,11 @@ def translate(
     else:
         comet = (corpus.extra or {}).get("comet")
         typer.echo(
-            f"chrF++ {corpus.chrf}  BLEU {corpus.bleu}"
-            + (f"  COMET {comet}" if comet is not None else "")
-            + f"  documents {corpus.n_docs}"
+            f"Corpus evaluation: chrF++ {corpus.chrf}  BLEU {corpus.bleu}"
+            f"  documents {corpus.n_docs}"
         )
+        if comet is not None:
+            typer.echo(f"COMET score: {comet}")
     typer.echo(f"Report: {run.path / 'report.md'}")
 
 
@@ -495,6 +540,29 @@ def make_split(
         doc_ids, settings.paths.split_file, dev_fraction, settings.seed, overwrite
     )
     typer.echo(json.dumps(split, ensure_ascii=False, indent=2))
+
+
+@app.command("compare-terminology")
+def compare_terminology(
+    runs: list[str] = typer.Argument(..., help="Two or more completed run directories."),
+    out: str = typer.Option("terminology-comparison", "--out"),
+) -> None:
+    """Validate and compare completed terminology runs without rerunning them."""
+    from .evaluation.terminology_compare import (
+        compare_terminology_runs,
+        render_terminology_comparison,
+    )
+
+    payload = compare_terminology_runs(runs)
+    output = Path(out)
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "comparison.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    (output / "comparison.md").write_text(
+        render_terminology_comparison(payload), encoding="utf-8"
+    )
+    typer.echo(f"Comparison: {output / 'comparison.md'}")
 
 
 @app.command("show-config")

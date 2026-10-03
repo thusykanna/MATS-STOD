@@ -27,6 +27,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
 from ..config import Settings
+from ..evaluation.terminology import load_terminology_gold, score_terminology
 from ..graph.export import write_graphml, write_json, write_mermaid
 from ..io.parallel import DocPair
 from ..io.runs import RunDir
@@ -80,6 +81,7 @@ class DocumentTranslation:
     memory_contexts: dict[str, Any] = field(default_factory=dict)
     terminology: list[TerminologyRecord] = field(default_factory=list)
     glossary_snapshot: dict[str, Any] | None = None
+    terminology_evaluation: dict[str, Any] | None = None
 
 
 def _make_node(
@@ -252,7 +254,7 @@ def translate_document(
         prompt_versions.append(settings.terminology.prompt_version)
     config = {"configurable": {"thread_id": f"{pair.direction}:{pair.doc_id}"}}
     fingerprint = _fingerprint({
-        "execution_version": 4,
+        "execution_version": 5,
         "source": pair.source_text,
         "settings": settings.model_dump(mode="json"),
         "prompts": {v: prompt_text(v) for v in prompt_versions},
@@ -296,6 +298,10 @@ def translate_document(
                 "n_terminology_matches": 0,
                 "n_unmatched_terminology_candidates": 0,
                 "glossary_hit_rate": 0.0,
+                "terminology_method": settings.terminology.method,
+                "terminology_resolution_methods": {},
+                "terminology_source_term_kinds": {},
+                "terminology_latency_s": 0.0,
             },
             glossary_snapshot=glossary.snapshot() if glossary is not None else None,
         )
@@ -339,13 +345,46 @@ def translate_document(
     n_matches = sum(len(record.matches) for record in terminology_records)
     n_unmatched = sum(len(record.unmatched_candidates) for record in terminology_records)
     lookup_total = n_matches + n_unmatched
+    method_counts: dict[str, int] = {}
+    source_kind_counts: dict[str, int] = {}
+    for record in terminology_records:
+        for match in record.matches:
+            key = "+".join(match.resolution_methods)
+            method_counts[key] = method_counts.get(key, 0) + 1
+            source_kind_counts[match.source_term_kind] = (
+                source_kind_counts.get(match.source_term_kind, 0) + 1
+            )
     stats = {
         "n_flagged_segments": sum(1 for r in records if r.flags),
         "n_terminology_candidates": n_candidates,
         "n_terminology_matches": n_matches,
         "n_unmatched_terminology_candidates": n_unmatched,
         "glossary_hit_rate": round(n_matches / lookup_total, 4) if lookup_total else 0.0,
+        "terminology_method": settings.terminology.method,
+        "terminology_resolution_methods": dict(sorted(method_counts.items())),
+        "terminology_source_term_kinds": dict(sorted(source_kind_counts.items())),
+        "terminology_latency_s": round(sum(r.latency_s for r in terminology_records), 6),
     }
+
+    terminology_evaluation = None
+    if glossary is not None:
+        gold = load_terminology_gold(
+            settings.paths.gold_terminology,
+            pair.doc_id,
+            settings.langs.source,
+            pair.source_text,
+        )
+        if gold is not None:
+            terminology_evaluation = score_terminology(
+                gold,
+                pair.source_text,
+                ordered,
+                terminology_records,
+                records,
+                glossary,
+                settings.langs.source,
+                settings.langs.target,
+            )
 
     return DocumentTranslation(
         doc_id=pair.doc_id,
@@ -364,6 +403,7 @@ def translate_document(
         memory_contexts=final_state.get("memory_contexts", {}),
         terminology=terminology_records,
         glossary_snapshot=glossary.snapshot() if glossary is not None else None,
+        terminology_evaluation=terminology_evaluation,
     )
 
 
@@ -378,6 +418,11 @@ def write_document_artifacts(run: RunDir, result: DocumentTranslation) -> None:
         run.write_json(f"documents/{result.doc_id}/memory_contexts.json", result.memory_contexts)
     if result.terminology:
         run.write_json(f"documents/{result.doc_id}/terminology.json", result.terminology)
+    if result.terminology_evaluation is not None:
+        run.write_json(
+            f"documents/{result.doc_id}/terminology_evaluation.json",
+            result.terminology_evaluation,
+        )
     if result.glossary_snapshot is not None:
         snapshot_path = Path(run.path) / "glossary_snapshot.json"
         if snapshot_path.exists():

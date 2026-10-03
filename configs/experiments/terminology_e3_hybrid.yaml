@@ -1,0 +1,6 @@
+run_name: terminology_e3_hybrid
+translation:
+  condition: graft_baseline
+terminology:
+  enabled: true
+  method: hybrid

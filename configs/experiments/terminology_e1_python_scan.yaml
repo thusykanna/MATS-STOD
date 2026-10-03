@@ -1,0 +1,6 @@
+run_name: terminology_e1_python_scan
+translation:
+  condition: graft_baseline
+terminology:
+  enabled: true
+  method: python_scan

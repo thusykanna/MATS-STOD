@@ -196,6 +196,7 @@ class MemorySettings(BaseModel):
 
 class TerminologySettings(BaseModel):
     enabled: bool = True
+    method: Literal["llm_exact", "python_scan", "llm_lookup_form", "hybrid"] = "hybrid"
     glossary_path: str = "data/glossaries/dummy_government.si-ta.json"
     prompt_version: str = "terminology_v1"
     max_output_tokens: int = Field(default=1024, gt=0)
@@ -217,13 +218,14 @@ class EvaluationSettings(BaseModel):
     comet_enabled: bool = False
     comet_model: str = "Unbabel/wmt22-comet-da"
     comet_batch_size: int = 8
-    comet_gpus: int = 0 
+    comet_gpus: int = 0
 
 class PathSettings(BaseModel):
     parallel: str = "data/parallel"
     samples: str = "data/samples"
     gold_segmentation: str = "data/gold/segmentation"
     gold_edges: str = "data/gold/edges"
+    gold_terminology: str = "data/gold/terminology"
     runs: str = "runs"
     split_file: str = "data/splits.json"
 

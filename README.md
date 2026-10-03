@@ -107,14 +107,14 @@ If you already have this checkout, open a terminal in its root folder instead.
 **All platforms — choose one installation:**
 
 ```text
-uv sync --dev --extra gemini
+uv sync --dev --extra gemini --extra comet
 ```
 
-This installs the application, test tools and Google SDK for real translations.
+This installs the application, test tools, Google SDK and COMET for real translations.
 For an offline-only setup without the Google SDK, use `uv sync --dev` instead.
 
-When using Gemini, **keep `--extra gemini` on subsequent `uv sync` commands**;
-otherwise uv removes the optional Google SDK.
+For referenced translations, keep both `--extra gemini` and `--extra comet` on
+subsequent `uv sync` commands; otherwise uv removes those optional dependencies.
 
 Run the tests:
 
@@ -148,7 +148,7 @@ Outputs land in `runs/<run_id>/`:
 | `documents/<doc_id>/translation.txt` | Translated text |
 | `log.jsonl` | Event log |
 
-The three sample document pairs are synthetic and must not be reported as
+The four sample document pairs are synthetic and must not be reported as
 research results.
 
 ### 5. Configure Vertex AI (optional)
@@ -156,7 +156,7 @@ research results.
 If you chose the offline-only installation, first run:
 
 ```text
-uv sync --dev --extra gemini
+uv sync --dev --extra gemini --extra comet
 ```
 
 Create your local configuration file using the command for your shell.
@@ -344,6 +344,7 @@ to verify access to the configured model and region.
 |---|---|
 | `translate` | Translate with GRAFT memory (default) or the configured raw-context condition |
 | `compare` | Run the DAG-context condition, write a results table |
+| `compare-terminology RUN...` | Validate and compare completed terminology experiment runs |
 | `segment` | Segment with GRAFT and score against gold |
 | `build-graph` | Build the discourse graph with GRAFT, score against gold |
 | `eval --hyp DIR --ref DIR` | Score two directories of `.txt` files |
@@ -374,14 +375,33 @@ local memory is extracted. The next discourse uses memories from its direct
 graph predecessors. Runtime reference text is never read by the translation
 pipeline.
 
-The terminology prepass is enabled by default for `graft_baseline`. One structured
-LLM request per segment identifies domain-term candidates; local deterministic
-lookup combines those candidates with exact preferred-term and alias matches from
-`data/glossaries/dummy_government.si-ta.json`. Only approved glossary matches enter
-the translation prompt. Target inflection is permitted, and glossary terms take
-precedence over conflicting GRAFT memory. Every terminology node checkpoints before
-the first translation node runs. Invalid extraction fails after the configured retry
-instead of silently skipping terminology.
+The terminology prepass is enabled by default for `graft_baseline`. Its configurable
+methods are `llm_exact` (E0), `python_scan` (E1), `llm_lookup_form` (E2), and
+`hybrid` (E3, the default). LLM methods copy a source surface and propose a
+source-language lookup form; Python remains authoritative by accepting only forms in
+`data/glossaries/dummy_government.si-ta.json`. E0 ignores the proposed lookup form,
+E1 makes no terminology LLM call, E2 verifies it only after surface lookup fails, and
+E3 combines E2 with the literal glossary scan. Only approved matches enter the
+translation prompt. No stemming, lemmatization or morphology generation is performed.
+Target inflection is permitted during translation, and glossary terms take precedence
+over conflicting GRAFT memory.
+
+Select a method with an experiment overlay:
+
+```bash
+uv run mats-stod translate --experiment configs/experiments/terminology_e0_llm_exact.yaml --source si --target ta --portion test --run-id term-e0-si-ta
+uv run mats-stod translate --experiment configs/experiments/terminology_e1_python_scan.yaml --source si --target ta --portion test --run-id term-e1-si-ta
+uv run mats-stod translate --experiment configs/experiments/terminology_e2_llm_lookup_form.yaml --source si --target ta --portion test --run-id term-e2-si-ta
+uv run mats-stod translate --experiment configs/experiments/terminology_e3_hybrid.yaml --source si --target ta --portion test --run-id term-e3-si-ta
+```
+
+If independently annotated files exist under `data/gold/terminology/`, runs also
+report terminology identification, resolution, recovery and target-realization
+metrics. Compare completed compatible runs without rerunning them:
+
+```bash
+uv run mats-stod compare-terminology runs/term-e0-si-ta runs/term-e1-si-ta runs/term-e2-si-ta runs/term-e3-si-ta --out terminology-comparison-si-ta
+```
 
 The bundled glossary is non-authoritative demonstration data. Version
 `dummy-government-v2-gazette` has 37 entries and includes pairs curated from
@@ -441,7 +461,7 @@ or SDK retries are not counted separately. A translation parse retry is a new
 logical request. Counts describe this invocation, not cumulative checkpoint
 history. `calls` in JSON remains the completed-response count for compatibility.
 
-Artifacts include `terminology.json`, the run-level `glossary_snapshot.json`,
+Artifacts include `terminology.json`, optional `terminology_evaluation.json`, the run-level `glossary_snapshot.json`,
 `memories.json`, `memory_contexts.json`, `records.json`, and the graph. They preserve
 term candidates, approved pairs, unmatched candidates, local memories, merged
 context, conflicts, prompts, and provenance. Call reports distinguish terminology
@@ -521,22 +541,22 @@ in Sinhala and dropping it from ශ්‍රී produces a different word.
 - **BLEU is close to meaningless on short segments.** It needs 4-grams, and
   sacrebleu has no Sinhala or Tamil tokeniser. chrF++ is the primary metric for
   this reason.
-- **No real corpus yet.** `data/samples/` holds three hand-written synthetic
+- **No real corpus yet.** `data/samples/` holds four hand-written synthetic
   documents, committed so tests and demos run. They are not government text and
   must never be reported as results.
-- **No learned metric.** A `LearnedMetric` protocol exists; COMET is not
-  installed, because it needs a model this machine cannot host and is not
-  validated for Sinhala–Tamil.
+- **COMET requires an optional model download.** It is enabled for referenced
+  translation runs and requires the `comet` dependency extra. Its score supplements
+  chrF++ and BLEU; it does not replace terminology-specific evaluation.
 - **Memory extraction can be wrong.** Schema validation checks structure, not
   semantic correctness. Memory and earlier-value conflict resolution still need
   evaluation on Sinhala–Tamil documents. Automatic correction and document review
   are not implemented.
 - **The bundled glossary is only a workflow fixture.** Its 37 pairs include terms
   curated from the `testing_01` reference and are neither independently reviewed nor
-  suitable for an unbiased measurement on that document. Lookup is exact
-  preferred-term/alias matching;
-  fuzzy search, stemming, semantic disambiguation and post-translation morphology
-  validation are not implemented.
+  suitable for an unbiased measurement on that document. Lookup supports exact
+  preferred/alias forms, literal scanning, and glossary-verified LLM lookup-form
+  proposals. Fuzzy search, stemming, lemmatization and morphology generation are not
+  implemented.
 - **The GRAFT edge agent is quadratic.** M3 will need the per-document call
   ceiling (`graph.max_pairwise_calls_per_doc`) set against real document
   lengths before it runs on the real corpus.
@@ -545,7 +565,7 @@ in Sinhala and dropping it from ශ්‍රී produces a different word.
 
 ```
 configs/            default.yaml plus one overlay per condition and direction
-data/samples/       three synthetic si/ta pairs, committed, used by tests
+data/samples/       four synthetic si/ta pairs, committed, used by tests
 data/glossaries/    local bilingual glossary fixtures
 data/parallel/      default translation inputs; one folder per document
 data/gold/          hand-annotated segmentation and edges (not committed)

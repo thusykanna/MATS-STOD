@@ -8,6 +8,8 @@ multiword expressions. Do not translate them.
 
 Rules:
 - Copy each "surface" exactly as it appears in the source segment.
+- For "lookup_form", propose the preferred or alias form likely to appear in the glossary.
+- Do not translate the lookup form. Keep it in the source language.
 - Include a short "reason" explaining why it is a domain term.
 - Do not include ordinary function words, numbers, dates, or reference codes.
 - Use an empty terms array when there are no domain-specific terms.
@@ -18,4 +20,4 @@ Source segment:
 --- END SOURCE DATA ---
 
 Return only JSON in this form:
-{"terms": [{"surface": "exact source substring", "reason": "short reason"}]}
+{"terms": [{"surface": "exact source substring", "lookup_form": "source-language glossary form", "reason": "short reason"}]}

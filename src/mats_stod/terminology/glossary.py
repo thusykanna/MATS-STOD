@@ -110,11 +110,12 @@ class GlossaryStore:
                                 entry_id=entry.id,
                                 definition=entry.definition,
                                 source_surface=text[at:end],
+                                lookup_form=form,
                                 source_preferred=localized.preferred,
                                 target_preferred=entry.terms[target_lang].preferred,
                                 char_start=at,
                                 char_end=end,
-                                match_method="deterministic",
+                                resolution_methods=["python_substring"],
                                 source_term_kind=kind,
                             )
                         )
@@ -150,26 +151,33 @@ def lookup_glossary(
 
 
 def _longest_non_overlapping(matches: list[TerminologyMatch]) -> list[TerminologyMatch]:
+    merged: dict[tuple[str, int, int], TerminologyMatch] = {}
+    for match in matches:
+        key = (match.entry_id, match.char_start, match.char_end)
+        existing = merged.get(key)
+        if existing is None:
+            merged[key] = match
+            continue
+        merged[key] = existing.model_copy(update={
+            "resolution_methods": sorted(set(
+                existing.resolution_methods + match.resolution_methods
+            ))
+        })
     ranked = sorted(
-        matches,
+        merged.values(),
         key=lambda match: (
             -(match.char_end - match.char_start),
             match.char_start,
             match.entry_id,
-            match.match_method,
+            tuple(match.resolution_methods),
         ),
     )
     accepted: list[TerminologyMatch] = []
-    seen: set[tuple[str, int, int]] = set()
     for match in ranked:
-        key = (match.entry_id, match.char_start, match.char_end)
-        if key in seen:
-            continue
         if any(
             match.char_start < existing.char_end and existing.char_start < match.char_end
             for existing in accepted
         ):
             continue
-        seen.add(key)
         accepted.append(match)
     return sorted(accepted, key=lambda match: (match.char_start, match.char_end, match.entry_id))

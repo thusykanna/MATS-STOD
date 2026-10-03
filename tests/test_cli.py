@@ -31,9 +31,11 @@ def yaml_text(tmp_path: Path) -> str:
     s.paths.runs = str(tmp_path / "runs")
     s.paths.gold_segmentation = str(tmp_path / "gold_seg")
     s.paths.gold_edges = str(tmp_path / "gold_edges")
+    s.paths.gold_terminology = str(tmp_path / "gold_terminology")
     s.paths.split_file = str(tmp_path / "splits.json")
     s.llm.cache_path = str(tmp_path / "cache.sqlite")
     s.llm.provider = "fake"
+    s.evaluation.comet_enabled = False
     return yaml.safe_dump(s.model_dump(mode="json"), sort_keys=True, allow_unicode=True)
 
 
@@ -151,6 +153,7 @@ def test_default_translation_discovers_source_only_and_paired_folders(
     assert "Evaluation: skipped — no Sinhala reference file" in result.output
     assert "Translated documents: 2" in result.output
     assert "Evaluated documents: 1" in result.output
+    assert "COMET score: 0.75" in result.output
 
     run_dir = tmp_path / "runs" / "mixed-default"
     assert (run_dir / "documents" / "a_source_only" / "translation.txt").exists()
@@ -308,7 +311,16 @@ def test_translate_runs_in_both_directions(workspace, tmp_path, direction):
     assert results["direction"] == f"{src}-{tgt}"
 
 
-def test_compare_produces_one_table(workspace, tmp_path):
+def test_compare_produces_one_table_with_comet(workspace, tmp_path, monkeypatch):
+    import yaml
+
+    config = yaml.safe_load(workspace.read_text())
+    config["evaluation"]["comet_enabled"] = True
+    workspace.write_text(yaml.safe_dump(config))
+    monkeypatch.setattr(
+        "mats_stod.evaluation.comet_metric.CometMetric.score",
+        lambda self, sources, hypotheses, references: [0.61] * len(sources),
+    )
     run(
         "compare", "--config", str(workspace),
         "--provider", "fake", "--data", "data/samples", "--portion", "all",
@@ -318,6 +330,8 @@ def test_compare_produces_one_table(workspace, tmp_path):
     assert "graft_baseline" in table
     payload = json.loads((tmp_path / "runs" / "cmp" / "comparison.json").read_text())
     assert len(payload["conditions"]) == 1
+    assert payload["conditions"][0]["comet"] == 0.61
+    assert "COMET" in table
 
 
 def test_segment_runs_with_graft(workspace, tmp_path):

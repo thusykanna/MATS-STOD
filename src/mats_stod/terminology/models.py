@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import unicodedata
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import (
+    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -15,6 +16,10 @@ from pydantic import (
 )
 
 Text = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1)]
+TerminologyMethod: TypeAlias = Literal["llm_exact", "python_scan", "llm_lookup_form", "hybrid"]
+ResolutionMethod: TypeAlias = Literal[
+    "llm_surface_exact", "llm_lookup_form", "python_substring"
+]
 
 
 class LocalizedTerm(BaseModel):
@@ -69,6 +74,7 @@ class TerminologyCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     surface: Text
+    lookup_form: Text
     reason: Text
 
 
@@ -94,34 +100,59 @@ class TerminologyMatch(BaseModel):
 
     entry_id: str
     definition: str
-    source_surface: str
+    surface_form: str = Field(validation_alias=AliasChoices("surface_form", "source_surface"))
+    lookup_form: str
     source_preferred: str
     target_preferred: str
     char_start: int = Field(ge=0)
     char_end: int = Field(ge=0)
-    match_method: Literal["deterministic", "agent"]
+    resolution_methods: list[ResolutionMethod] = Field(min_length=1)
     source_term_kind: Literal["preferred", "alias"]
+    status: Literal["resolved"] = "resolved"
+
+    @field_validator("resolution_methods")
+    @classmethod
+    def stable_methods(cls, values: list[ResolutionMethod]) -> list[ResolutionMethod]:
+        return sorted(set(values))
 
     @model_validator(mode="after")
     def valid_span(self) -> TerminologyMatch:
         if self.char_end <= self.char_start:
             raise ValueError("terminology match must have a non-empty span")
+        if self.char_end - self.char_start != len(self.surface_form):
+            raise ValueError("terminology match span length must equal its surface form")
         return self
+
+    @property
+    def source_surface(self) -> str:
+        """Compatibility accessor for translation prompt construction."""
+        return self.surface_form
+
+
+class UnmatchedTerminologyCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    surface_form: Text
+    lookup_form: Text
+    reason: Text
+    status: Literal["unmatched"] = "unmatched"
 
 
 class TerminologyRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     seg_id: str
+    extraction_method: TerminologyMethod
     candidates: list[TerminologyCandidate] = Field(default_factory=list)
     matches: list[TerminologyMatch] = Field(default_factory=list)
-    unmatched_candidates: list[str] = Field(default_factory=list)
+    unmatched_candidates: list[UnmatchedTerminologyCandidate] = Field(default_factory=list)
     glossary_version: str
     glossary_hash: str
     model: str
     prompt_version: str
     tokens_in: int = 0
     tokens_out: int = 0
+    latency_s: float = 0.0
     cached: bool = False
     parse_failures: list[str] = Field(default_factory=list)
     prompt: str = ""

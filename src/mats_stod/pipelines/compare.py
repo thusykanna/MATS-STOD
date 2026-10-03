@@ -8,6 +8,7 @@ from typing import Any
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from ..config import Settings
+from ..evaluation.comet_metric import add_comet_if_enabled
 from ..evaluation.metrics import score_corpus, score_document
 from ..evaluation.report import _table, models_used
 from ..io.parallel import DocPair
@@ -34,6 +35,7 @@ class ConditionResult:
     tokens_out: int
     latency_s: float
     flagged_segments: int
+    comet: float | None = None
     logical_requests: int = 0
     provider_calls: int = 0
     calls_by_purpose: dict[str, Any] = field(default_factory=dict)
@@ -59,6 +61,7 @@ def run_condition(
 
     hyps: list[str] = []
     refs: list[str] = []
+    srcs: list[str] = []
     doc_scores = []
     flagged = 0
 
@@ -74,6 +77,7 @@ def run_condition(
             write_document_artifacts(cond_run, result)
             hyps.append(result.output_text)
             refs.append(result.reference_text)
+            srcs.append(pair.source_text)
             doc_scores.append(
                 score_document(
                     pair.doc_id, result.output_text, pair.reference_text, settings.evaluation
@@ -82,6 +86,7 @@ def run_condition(
             flagged += int(result.stats.get("n_flagged_segments", 0))
 
     corpus = score_corpus(hyps, refs, settings.evaluation)
+    add_comet_if_enabled(settings.evaluation, doc_scores, corpus, srcs, hyps, refs)
     slice_ledger = CallLedger(calls=llm.ledger.calls[before:])
 
     return ConditionResult(
@@ -95,6 +100,7 @@ def run_condition(
         tokens_out=slice_ledger.tokens_out_total,
         latency_s=round(slice_ledger.latency_s_total, 2),
         flagged_segments=flagged,
+        comet=(corpus.extra or {}).get("comet"),
         logical_requests=len(llm.ledger.request_purposes) - requests_before,
         provider_calls=len(llm.ledger.provider_purposes) - providers_before,
         calls_by_purpose=slice_ledger.by_purpose(),
@@ -110,6 +116,7 @@ def render_comparison(
             r.name,
             r.chrf,
             r.bleu,
+            r.comet if r.comet is not None else "",
             r.logical_requests,
             r.cache_hits,
             r.provider_calls,
@@ -125,6 +132,7 @@ def render_comparison(
             "condition",
             "chrF++",
             "BLEU",
+            "COMET",
             "logical requests",
             "cached",
             "provider calls",
