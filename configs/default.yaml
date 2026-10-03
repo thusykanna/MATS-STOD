@@ -78,6 +78,16 @@ memory:
   retry_on_parse_failure: 1
   request_token_limit: 32000 # estimated complete input + reserved output; fail, never truncate
 
+terminology:
+  enabled: true
+  glossary_path: data/glossaries/dummy_government.si-ta.json
+  prompt_version: terminology_v1
+  max_output_tokens: 1024
+  thinking_budget: 0
+  retry_on_parse_failure: 1
+  request_token_limit: 32000
+  enforcement: preferred_with_inflection
+
 evaluation:
   primary_metric: chrf++
   bleu_tokenize: none

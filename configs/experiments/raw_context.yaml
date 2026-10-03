@@ -6,5 +6,7 @@ translation:
   condition: dag_raw_context
   dag_context_depth: 2
   context_token_budget: 2000
+terminology:
+  enabled: false
 graph:
   max_parents: 4

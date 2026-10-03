@@ -109,6 +109,8 @@ def _echo(messages: list[Message], params: dict[str, Any]) -> str:
     import json
 
     prompt = "\n\n".join(m.content for m in messages)
+    if prompt.startswith("You identify domain-specific terminology"):
+        return json.dumps({"terms": []})
     if prompt.startswith("GRAFT local memory extraction:"):
         return json.dumps({"noun_pronoun": [], "entities": [], "phrases": [],
                            "connectives": [], "summary": "Offline demonstration memory."})

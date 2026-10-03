@@ -268,17 +268,37 @@ uv run mats-stod check-llm --send
 A successful reply confirms that Vertex AI credentials work and the configured
 model is reachable.
 
-Start with one sample document:
+Run the complete pipeline over every usable folder in `data/parallel`:
 
 ```text
-uv run mats-stod translate --data data/samples --portion all --max-docs 1
+uv run mats-stod translate
 ```
 
-The default direction is Sinhala to Tamil. To reverse it:
+The command asks for the direction using a numbered menu:
+
+```text
+1. Sinhala → Tamil
+2. Tamil → Sinhala
+```
+
+Limit the run to the first usable folder with `--max-docs 1`. Explicit flags
+bypass the menu for scripts and repeatable experiments:
 
 ```text
 uv run mats-stod translate --data data/samples --portion all --source ta --target si --max-docs 1
 ```
+
+Each document folder needs a file for the selected source language, such as
+`notice.si` or `notice.ta`. A target-language file in the same folder is
+optional: when present it is used to report chrF++ and BLEU; when absent the
+translation is still written and evaluation is marked unavailable. Output
+paths are printed after every document.
+
+Translation defaults to `--portion all`. To select `--portion dev` or
+`--portion test`, first create the configured split file with `mats-stod make-split`.
+A missing split file or unsupported portion is an error; translation does not
+silently fall back to the full corpus. In mixed batches, reference-based metrics
+(including optional COMET) score only documents with target references.
 
 Open the files in `runs/<run_id>/` to inspect the results. If Sinhala or Tamil
 appears as boxes in your terminal, open the UTF-8 output in an editor with a
@@ -348,9 +368,28 @@ uv run mats-stod translate --experiment configs/experiments/raw_context.yaml
 ## GRAFT memory baseline
 
 `translate` and `compare` default to `graft_baseline`. After segmentation and
-graph construction, each discourse is translated in reading order, then its
+graph construction, a terminology prepass completes for every discourse before
+translation starts. Each discourse is then translated in reading order and its
 local memory is extracted. The next discourse uses memories from its direct
-graph predecessors. No human reference translation enters either prompt.
+graph predecessors. Runtime reference text is never read by the translation
+pipeline.
+
+The terminology prepass is enabled by default for `graft_baseline`. One structured
+LLM request per segment identifies domain-term candidates; local deterministic
+lookup combines those candidates with exact preferred-term and alias matches from
+`data/glossaries/dummy_government.si-ta.json`. Only approved glossary matches enter
+the translation prompt. Target inflection is permitted, and glossary terms take
+precedence over conflicting GRAFT memory. Every terminology node checkpoints before
+the first translation node runs. Invalid extraction fails after the configured retry
+instead of silently skipping terminology.
+
+The bundled glossary is non-authoritative demonstration data. Version
+`dummy-government-v2-gazette` has 37 entries and includes pairs curated from
+the `testing_01` parallel reference specifically for workflow verification.
+Testing it on that same document is therefore reference leakage and must not be
+reported as an unbiased quality result. Use
+`configs/experiments/baseline_no_terminology.yaml` for the baseline ablation;
+the two raw-context overlays disable the terminology prepass.
 
 The Memory Agent returns five validated components: noun–pronoun mappings,
 source/target entity mappings, phrase mappings, discourse connective mappings,
@@ -386,12 +425,12 @@ or publish an aggregate over an incomplete batch. Earlier artifacts may remain.
 Raise the ceiling explicitly to continue the baseline; a distance bound is an
 ablation and requires selecting the raw-context condition.
 
-LangGraph checkpoints translation and memory extraction as separate stages in
+LangGraph checkpoints terminology, translation and memory extraction as separate stages in
 `checkpoints.sqlite`. If memory extraction fails, the completed translation is
-reused on resume. Schema-invalid translation/memory responses are evicted from the cache,
-so they cannot permanently block retries. Reuse the same `--run-id` to
+reused on resume. Schema-invalid terminology, translation, or memory responses
+are evicted from the cache, so they cannot permanently block retries. Reuse the same `--run-id` to
 resume unchanged work. Fingerprints validate source text, settings, provider,
-model, prompt contents, execution version, and the rebuilt graph. Legacy or
+model, prompt contents, glossary SHA-256, execution version, and the rebuilt graph. Legacy or
 incompatible checkpoints require a **fresh run ID**. Changed run settings are
 rejected before overwriting saved configuration or provenance. Graph rebuilding
 still occurs on resume; its model requests can use the cache.
@@ -402,9 +441,11 @@ or SDK retries are not counted separately. A translation parse retry is a new
 logical request. Counts describe this invocation, not cumulative checkpoint
 history. `calls` in JSON remains the completed-response count for compatibility.
 
-Artifacts include `memories.json`, `memory_contexts.json`, `records.json`, and
-the graph. They preserve local memories, the merged context, conflicts, prompts,
-and provenance. Call reports separate memory extraction from translation.
+Artifacts include `terminology.json`, the run-level `glossary_snapshot.json`,
+`memories.json`, `memory_contexts.json`, `records.json`, and the graph. They preserve
+term candidates, approved pairs, unmatched candidates, local memories, merged
+context, conflicts, prompts, and provenance. Call reports distinguish terminology
+extraction, memory extraction, and translation.
 
 **Migration:** use a fresh run ID; prior raw-context checkpoints are incompatible.
 See [CODEBASE_GUIDE.md](CODEBASE_GUIDE.md) for the code map and
@@ -490,6 +531,12 @@ in Sinhala and dropping it from ශ්‍රී produces a different word.
   semantic correctness. Memory and earlier-value conflict resolution still need
   evaluation on Sinhala–Tamil documents. Automatic correction and document review
   are not implemented.
+- **The bundled glossary is only a workflow fixture.** Its 37 pairs include terms
+  curated from the `testing_01` reference and are neither independently reviewed nor
+  suitable for an unbiased measurement on that document. Lookup is exact
+  preferred-term/alias matching;
+  fuzzy search, stemming, semantic disambiguation and post-translation morphology
+  validation are not implemented.
 - **The GRAFT edge agent is quadratic.** M3 will need the per-document call
   ceiling (`graph.max_pairwise_calls_per_doc`) set against real document
   lengths before it runs on the real corpus.
@@ -499,7 +546,8 @@ in Sinhala and dropping it from ශ්‍රී produces a different word.
 ```
 configs/            default.yaml plus one overlay per condition and direction
 data/samples/       three synthetic si/ta pairs, committed, used by tests
-data/parallel/      the real corpus (not committed)
+data/glossaries/    local bilingual glossary fixtures
+data/parallel/      default translation inputs; one folder per document
 data/gold/          hand-annotated segmentation and edges (not committed)
 src/mats_stod/
   schemas.py        Document, Segment, Edge, DiscourseGraph, TranslationRecord
@@ -507,6 +555,7 @@ src/mats_stod/
   io/               loaders, NFC normalisation, run directories, fixed split
   llm/              LLMClient, Gemini provider, cache, call ledger, FakeLLM
   prompts/          versioned .jinja templates, never inline strings
+  terminology/      candidate extraction, glossary lookup and term records
   parsing/          LayoutParser interface and PlainTextParser
   segmentation/     sentence splitter, GRAFT discourse segmenter
   graph/            structural + GRAFT pairwise edges, assembly, export

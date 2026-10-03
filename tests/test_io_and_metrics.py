@@ -9,7 +9,7 @@ import pytest
 
 from mats_stod.evaluation.metrics import paired_bootstrap, score_corpus, score_document
 from mats_stod.evaluation.report import render_report, write_report
-from mats_stod.io.parallel import load_pair_dir, load_parallel
+from mats_stod.io.parallel import discover_translation_inputs, load_pair_dir, load_parallel
 from mats_stod.io.runs import RunDir
 from mats_stod.io.split import SplitError, create_split, select
 
@@ -73,6 +73,53 @@ def test_source_reference_layout_with_meta(tmp_path):
     (d / "meta.json").write_text(json.dumps({"source_lang": "si", "target_lang": "ta"}), encoding="utf-8")
     pair = load_pair_dir(d, [("si", "ta")])[0]
     assert pair.source_text == "a" and pair.reference_text == "b"
+
+
+def test_translation_discovery_accepts_source_only_and_reports_skips(tmp_path):
+    source_only = tmp_path / "a_source_only"
+    paired = tmp_path / "b_paired"
+    wrong_direction = tmp_path / "c_wrong_direction"
+    unrecognized = tmp_path / "d_unrecognized"
+    for directory in (source_only, paired, wrong_direction, unrecognized):
+        directory.mkdir()
+
+    (source_only / "notice.ta").write_text("ஆவணம்", encoding="utf-8")
+    (paired / "notice.ta").write_text("பயணம்", encoding="utf-8")
+    (paired / "notice.si").write_text("ගමන", encoding="utf-8")
+    (wrong_direction / "notice.si").write_text("සිංහල", encoding="utf-8")
+    (unrecognized / "notes.md").write_text("ignored", encoding="utf-8")
+
+    result = discover_translation_inputs(tmp_path, "ta", "si")
+
+    assert result.discovered_count == 4
+    assert result.valid_count == 2
+    assert [pair.doc_id for pair in result.pairs] == ["a_source_only", "b_paired"]
+    assert result.pairs[0].reference_text is None
+    assert result.pairs[1].reference_text == "ගමන"
+    assert [item.doc_id for item in result.skipped] == ["c_wrong_direction", "d_unrecognized"]
+
+
+def test_translation_max_docs_counts_valid_folders(tmp_path):
+    invalid = tmp_path / "a_invalid"
+    first = tmp_path / "b_first"
+    second = tmp_path / "c_second"
+    for directory in (invalid, first, second):
+        directory.mkdir()
+    (invalid / "source.si").write_text("වැරදි", encoding="utf-8")
+    (first / "source.ta").write_text("ஒன்று", encoding="utf-8")
+    (second / "source.ta").write_text("இரண்டு", encoding="utf-8")
+
+    result = discover_translation_inputs(tmp_path, "ta", "si", max_docs=1)
+
+    assert result.valid_count == 2
+    assert [pair.doc_id for pair in result.pairs] == ["b_first"]
+    assert [item.doc_id for item in result.skipped] == ["a_invalid"]
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_translation_discovery_rejects_nonpositive_limits(tmp_path, limit):
+    with pytest.raises(ValueError, match="at least 1"):
+        discover_translation_inputs(tmp_path, "si", "ta", max_docs=limit)
 
 
 # -- split ----------------------------------------------------------------

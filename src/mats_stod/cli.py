@@ -14,11 +14,16 @@ from typing import Any
 import typer
 
 from .config import Settings, load_settings
+from .evaluation.comet_metric import add_comet_if_enabled
 from .evaluation.metrics import score_corpus, score_document
 from .evaluation.report import write_report
-from .evaluation.comet_metric import add_comet_if_enabled
 from .io.env import credential_status, load_env_file
-from .io.parallel import load_parallel, load_text_dir
+from .io.parallel import (
+    TranslationDiscovery,
+    discover_translation_inputs,
+    load_parallel,
+    load_text_dir,
+)
 from .io.runs import RunDir
 from .io.split import create_split, select
 from .llm.factory import build_llm
@@ -88,6 +93,94 @@ def _load_docs(
     return pairs
 
 
+_TRANSLATION_DIRECTIONS = {
+    "1": ("si", "ta"),
+    "2": ("ta", "si"),
+}
+
+
+def _resolve_translation_direction(
+    source: str | None, target: str | None
+) -> tuple[str, str]:
+    """Resolve explicit flags or ask for one of the two supported directions."""
+    if (source is None) != (target is None):
+        raise typer.BadParameter("provide both --source and --target, or omit both")
+    if source is not None and target is not None:
+        if (source, target) not in {("si", "ta"), ("ta", "si")}:
+            raise typer.BadParameter(
+                "translate supports --source si --target ta or --source ta --target si"
+            )
+        return source, target
+
+    typer.echo("Select translation direction:\n")
+    typer.echo("1. Sinhala → Tamil")
+    typer.echo("2. Tamil → Sinhala\n")
+    while True:
+        choice = typer.prompt("Enter 1 or 2", show_default=False).strip()
+        selected = _TRANSLATION_DIRECTIONS.get(choice)
+        if selected is not None:
+            return selected[0], selected[1]
+        typer.echo("Invalid choice. Enter 1 or 2.", err=True)
+
+
+def _translation_discovery(
+    settings: Settings,
+    data_dir: str | None,
+    portion: str,
+    max_docs: int | None,
+) -> TranslationDiscovery:
+    """Discover default translation inputs without falling back to samples."""
+    if portion not in {"all", "dev", "test"}:
+        raise typer.BadParameter("portion must be all, dev or test", param_hint="--portion")
+    root = Path(data_dir or settings.paths.parallel)
+    if not root.exists():
+        raise typer.BadParameter(f"parallel data directory not found: {root}")
+    if not root.is_dir():
+        raise typer.BadParameter(f"parallel data path is not a directory: {root}")
+
+    doc_ids = None
+    split_path = Path(settings.paths.split_file)
+    if portion != "all":
+        if not split_path.exists():
+            raise typer.BadParameter(
+                f"split file not found: {split_path}. Create it with `mats-stod make-split`."
+            )
+        available = [path.name for path in sorted(root.iterdir()) if path.is_dir()]
+        doc_ids = select(available, split_path, portion)
+
+    discovery = discover_translation_inputs(
+        root,
+        settings.langs.source,
+        settings.langs.target,
+        doc_ids=doc_ids,
+        max_docs=max_docs,
+    )
+    if not discovery.pairs:
+        reasons = "; ".join(
+            f"{item.doc_id}: {item.reason}" for item in discovery.skipped
+        )
+        detail = f" Skipped folders: {reasons}" if reasons else ""
+        raise typer.BadParameter(
+            f"no usable {settings.langs.source} source documents under {root}.{detail}"
+        )
+    return discovery
+
+
+def _print_translation_discovery(settings: Settings, discovery: TranslationDiscovery) -> None:
+    """Print the exact workload before any model client or run is created."""
+    typer.echo(
+        f"Translation direction: {settings.langs.source_name} → "
+        f"{settings.langs.target_name}"
+    )
+    typer.echo(f"Input directory: {discovery.root}")
+    typer.echo(f"Discovered folders: {discovery.discovered_count}")
+    typer.echo(f"Valid document folders: {discovery.valid_count}")
+    typer.echo(f"Selected for translation: {len(discovery.pairs)}")
+    typer.echo(f"Skipped folders: {len(discovery.skipped)}")
+    for item in discovery.skipped:
+        typer.echo(f"  - {item.doc_id}: {item.reason}", err=True)
+
+
 # --------------------------------------------------------------------------
 
 
@@ -131,16 +224,16 @@ def translate(
     config: str | None = typer.Option(None, "--config"),
     experiment: list[str] | None = typer.Option(None, "--experiment"),
     data: str | None = typer.Option(None, "--data", help="Parallel data directory."),
-    portion: str = typer.Option("dev", "--portion", help="dev, test or all."),
+    portion: str = typer.Option("all", "--portion", help="dev, test or all."),
     source: str | None = typer.Option(None, "--source"),
     target: str | None = typer.Option(None, "--target"),
     model: str | None = typer.Option(None, "--model"),
     provider: str | None = typer.Option(None, "--provider", help="gemini, openai_compat, fake."),
-    max_docs: int | None = typer.Option(None, "--max-docs"),
+    max_docs: int | None = typer.Option(None, "--max-docs", min=1),
     dry_run: bool = typer.Option(False, "--dry-run"),
     run_id: str | None = typer.Option(None, "--run-id"),
 ) -> None:
-    """Translate with the configured condition (GRAFT memory by default)."""
+    """Run the complete translation pipeline over folders in data/parallel."""
     from langgraph.checkpoint.sqlite import SqliteSaver
 
     from .pipelines.dag_translate import (
@@ -149,8 +242,11 @@ def translate(
         write_document_artifacts,
     )
 
+    source, target = _resolve_translation_direction(source, target)
     settings = _settings(config, experiment, source, target, model=model, provider=provider)
-    pairs = _load_docs(settings, data, portion, max_docs)
+    discovery = _translation_discovery(settings, data, portion, max_docs)
+    pairs = discovery.pairs
+    _print_translation_discovery(settings, discovery)
     llm = build_llm(settings, dry_run=dry_run)
     run = RunDir.create(settings, prefix="translate-dag", run_id=run_id, dry_run=dry_run)
 
@@ -165,18 +261,30 @@ def translate(
                         error_type=type(exc).__name__, error=str(exc))
                 raise
             write_document_artifacts(run, result)
-            hyps.append(result.output_text)
-            refs.append(result.reference_text)
-            srcs.append(pair.source_text)
-            doc_scores.append(
-                score_document(
-                    pair.doc_id, result.output_text, pair.reference_text, settings.evaluation
+            typer.echo(f"Translated: {pair.doc_id}")
+            typer.echo(f"Output: {run.path / 'documents' / pair.doc_id / 'translation.txt'}")
+            if result.reference_text is not None:
+                score = score_document(
+                    pair.doc_id, result.output_text, result.reference_text, settings.evaluation
                 )
+                hyps.append(result.output_text)
+                refs.append(result.reference_text)
+                srcs.append(pair.source_text)
+                doc_scores.append(score)
+                typer.echo(f"Evaluation: chrF++ {score.chrf}  BLEU {score.bleu}")
+            else:
+                typer.echo(
+                    f"Evaluation: skipped — no {settings.langs.target_name} reference file"
+                )
+            run.log(
+                "translated", doc_id=pair.doc_id, segments=len(result.segments),
+                reference_available=result.reference_text is not None,
+                evaluated=result.reference_text is not None,
             )
-            run.log("translated", doc_id=pair.doc_id, segments=len(result.segments))
 
-    corpus = score_corpus(hyps, refs, settings.evaluation)
-    add_comet_if_enabled(settings.evaluation, doc_scores, corpus, srcs, hyps, refs)
+    corpus = score_corpus(hyps, refs, settings.evaluation) if doc_scores else None
+    if corpus is not None:
+        add_comet_if_enabled(settings.evaluation, doc_scores, corpus, srcs, hyps, refs)
     flagged = [
         {"doc_id": p.doc_id, "seg_id": r["seg_id"], "flag": flag}
         for p in pairs
@@ -189,14 +297,34 @@ def translate(
         doc_scores,
         corpus,
         llm.ledger,
-        extra={"flagged_segments": flagged},
+        extra={
+            "flagged_segments": flagged,
+            "input_summary": {
+                "input_directory": str(discovery.root),
+                "discovered_folders": discovery.discovered_count,
+                "valid_folders": discovery.valid_count,
+                "selected_folders": len(pairs),
+                "translated_documents": len(pairs),
+                "evaluated_documents": len(doc_scores),
+                "source_only_documents": len(pairs) - len(doc_scores),
+                "skipped_folders": [
+                    {"doc_id": item.doc_id, "reason": item.reason}
+                    for item in discovery.skipped
+                ],
+            },
+        },
     )
-    comet = (corpus.extra or {}).get("comet")
-    typer.echo(
-        f"chrF++ {corpus.chrf}  BLEU {corpus.bleu}"
-        + (f"  COMET {comet}" if comet is not None else "")
-        + f"  documents {corpus.n_docs}"
-    )
+    typer.echo(f"Translated documents: {len(pairs)}")
+    typer.echo(f"Evaluated documents: {len(doc_scores)}")
+    if corpus is None:
+        typer.echo("Corpus evaluation: unavailable — no reference files")
+    else:
+        comet = (corpus.extra or {}).get("comet")
+        typer.echo(
+            f"chrF++ {corpus.chrf}  BLEU {corpus.bleu}"
+            + (f"  COMET {comet}" if comet is not None else "")
+            + f"  documents {corpus.n_docs}"
+        )
     typer.echo(f"Report: {run.path / 'report.md'}")
 
 

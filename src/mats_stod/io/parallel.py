@@ -1,10 +1,9 @@
-"""Loader for aligned document pairs.
+"""Load aligned pairs and source-only translation inputs.
 
-The corpus is a directory per document pair holding one Sinhala file and one
-Tamil file. Because MATS-STOD is evaluated in both directions, one pair on disk
-yields two `DocPair` objects at load time: si->ta uses the Sinhala file as
-source, ta->si uses the Tamil file. Nothing downstream needs to know which
-physical file was which.
+The corpus is a directory per document. Strict evaluation loading requires one
+Sinhala file and one Tamil file. Translation discovery requires only the file
+for the selected source language and attaches the other file as an optional
+reference when it exists.
 """
 
 from __future__ import annotations
@@ -33,13 +32,17 @@ class SegmentAlignment:
 
 @dataclass
 class DocPair:
-    """One document in one translation direction."""
+    """One document in one translation direction.
+
+    ``reference_text`` is absent for source-only translation inputs.  Strict
+    corpus and evaluation loaders still return pairs with references.
+    """
 
     doc_id: str
     source_lang: str
     target_lang: str
     source_text: str
-    reference_text: str
+    reference_text: str | None
     metadata: dict[str, Any] = field(default_factory=dict)
     alignment: list[SegmentAlignment] | None = None
     source_path: Path | None = None
@@ -53,6 +56,30 @@ class DocPair:
     def key(self) -> str:
         """Unique id of this document in this direction."""
         return f"{self.doc_id}::{self.direction}"
+
+    @property
+    def has_reference(self) -> bool:
+        """Whether this document can be scored against a target reference."""
+        return self.reference_text is not None
+
+
+@dataclass(frozen=True)
+class SkippedDocument:
+    """A directory that could not supply a source for the selected direction."""
+
+    doc_id: str
+    reason: str
+
+
+@dataclass
+class TranslationDiscovery:
+    """Translation inputs plus the diagnostics needed for CLI feedback."""
+
+    root: Path
+    discovered_count: int
+    valid_count: int
+    pairs: list[DocPair]
+    skipped: list[SkippedDocument] = field(default_factory=list)
 
 
 def _read_meta(pair_dir: Path) -> dict[str, Any]:
@@ -147,6 +174,104 @@ def load_pair_dir(pair_dir: Path, directions: list[tuple[str, str]]) -> list[Doc
             )
         )
     return out
+
+
+def _load_translation_dir(
+    pair_dir: Path, source_lang: str, target_lang: str
+) -> tuple[DocPair | None, str | None]:
+    """Load one directory while allowing its target reference to be absent."""
+    try:
+        meta = _read_meta(pair_dir)
+        files = _find_lang_files(pair_dir)
+
+        # ``source.txt`` names a role rather than a language, so metadata is
+        # necessary even when no reference is available.
+        if not files and (pair_dir / "source.txt").exists():
+            meta_source = meta.get("source_lang")
+            meta_target = meta.get("target_lang")
+            if not meta_source or not meta_target:
+                raise ValueError(
+                    "source.txt layout requires meta.json with source_lang and target_lang"
+                )
+            files[meta_source] = pair_dir / "source.txt"
+            if (pair_dir / "reference.txt").exists():
+                files[meta_target] = pair_dir / "reference.txt"
+
+        source_path = files.get(source_lang)
+        if source_path is None:
+            if files:
+                available = ", ".join(sorted(files))
+                return None, (
+                    f"no {source_lang} source file for {source_lang}-{target_lang}; "
+                    f"found language file(s): {available}"
+                )
+            return None, "no recognized language source file"
+
+        reference_path = files.get(target_lang)
+        pair = DocPair(
+            doc_id=pair_dir.name,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            source_text=read_text(source_path),
+            reference_text=read_text(reference_path) if reference_path is not None else None,
+            metadata=dict(meta),
+            alignment=(
+                _read_alignment(pair_dir, source_lang, target_lang)
+                if reference_path is not None
+                else None
+            ),
+            source_path=source_path,
+            reference_path=reference_path,
+        )
+        return pair, None
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        return None, str(exc)
+
+
+def discover_translation_inputs(
+    root: str | Path,
+    source_lang: str,
+    target_lang: str,
+    doc_ids: list[str] | None = None,
+    max_docs: int | None = None,
+) -> TranslationDiscovery:
+    """Discover source documents and optional references for translation.
+
+    Every candidate directory is inspected before ``max_docs`` is applied, so
+    the limit always counts usable source documents rather than raw folders.
+    """
+    if max_docs is not None and max_docs < 1:
+        raise ValueError("max_docs must be at least 1")
+
+    root_path = Path(root)
+    if not root_path.exists():
+        raise FileNotFoundError(f"parallel data directory not found: {root_path}")
+    if not root_path.is_dir():
+        raise NotADirectoryError(f"parallel data path is not a directory: {root_path}")
+
+    wanted = set(doc_ids) if doc_ids is not None else None
+    directories = [
+        path
+        for path in sorted(root_path.iterdir())
+        if path.is_dir() and (wanted is None or path.name in wanted)
+    ]
+    valid: list[DocPair] = []
+    skipped: list[SkippedDocument] = []
+    for pair_dir in directories:
+        pair, reason = _load_translation_dir(pair_dir, source_lang, target_lang)
+        if pair is None:
+            skipped.append(SkippedDocument(pair_dir.name, reason or "unusable input"))
+        else:
+            valid.append(pair)
+
+    selected = valid[:max_docs] if max_docs is not None else valid
+    return TranslationDiscovery(
+        root=root_path,
+        discovered_count=len(directories),
+        valid_count=len(valid),
+        pairs=selected,
+        skipped=skipped,
+    )
 
 
 def load_parallel(

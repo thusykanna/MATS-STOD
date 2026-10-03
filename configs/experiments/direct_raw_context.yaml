@@ -3,5 +3,7 @@ run_name: direct_raw_context
 translation:
   condition: dag_raw_context
   dag_context_depth: 1
+terminology:
+  enabled: false
 graph:
   max_parents: 0

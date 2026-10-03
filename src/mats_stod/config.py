@@ -194,6 +194,17 @@ class MemorySettings(BaseModel):
     request_token_limit: int = Field(default=32000, gt=0)
 
 
+class TerminologySettings(BaseModel):
+    enabled: bool = True
+    glossary_path: str = "data/glossaries/dummy_government.si-ta.json"
+    prompt_version: str = "terminology_v1"
+    max_output_tokens: int = Field(default=1024, gt=0)
+    thinking_budget: int | None = 0
+    retry_on_parse_failure: int = Field(default=1, ge=0)
+    request_token_limit: int = Field(default=32000, gt=0)
+    enforcement: Literal["preferred_with_inflection"] = "preferred_with_inflection"
+
+
 class EvaluationSettings(BaseModel):
     primary_metric: str = "chrf++"
     #: sacrebleu has no Sinhala or Tamil word tokeniser; see DECISIONS.md.
@@ -228,6 +239,7 @@ class Settings(BaseModel):
     graph: GraphSettings = Field(default_factory=GraphSettings)
     translation: TranslationSettings = Field(default_factory=TranslationSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    terminology: TerminologySettings = Field(default_factory=TerminologySettings)
     evaluation: EvaluationSettings = Field(default_factory=EvaluationSettings)
     paths: PathSettings = Field(default_factory=PathSettings)
 

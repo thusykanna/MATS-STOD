@@ -1,0 +1,303 @@
+{
+  "version": "dummy-government-v2-gazette",
+  "domain": "government",
+  "notice": "Demonstration data, including term pairs curated from the testing_01 parallel reference. Not authoritative and not suitable for unbiased evaluation or reported research results.",
+  "entries": [
+    {
+      "id": "gov-001",
+      "definition": "Official name of the state",
+      "terms": {
+        "si": {"preferred": "ශ්‍රී ලංකා ප්‍රජාතාන්ත්‍රික සමාජවාදී ජනරජය", "aliases": []},
+        "ta": {"preferred": "இலங்கை ஜனநாயக சோசலிசக் குடியரசு", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-002",
+      "definition": "Government ministry responsible for finance",
+      "terms": {
+        "si": {"preferred": "මුදල් අමාත්‍යාංශය", "aliases": []},
+        "ta": {"preferred": "நிதி அமைச்சு", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-003",
+      "definition": "Official circular issued by an authority",
+      "terms": {
+        "si": {"preferred": "චක්‍රලේඛය", "aliases": ["චක්‍රලේඛ"]},
+        "ta": {"preferred": "சுற்றறிக்கை", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-004",
+      "definition": "Institutions belonging to or administered by the state",
+      "terms": {
+        "si": {"preferred": "රාජ්‍ය ආයතන", "aliases": []},
+        "ta": {"preferred": "அரச நிறுவனங்கள்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-005",
+      "definition": "Reimbursement of official travel expenses",
+      "terms": {
+        "si": {"preferred": "ගමන් වියදම් ප්‍රතිපූරණය", "aliases": []},
+        "ta": {"preferred": "பயணச் செலவு மீளளிப்பு", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-006",
+      "definition": "Approved application for official travel",
+      "terms": {
+        "si": {"preferred": "අනුමත ගමන් අයදුම්පත", "aliases": []},
+        "ta": {"preferred": "அங்கீகரிக்கப்பட்ட பயண விண்ணப்பம்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-007",
+      "definition": "Head of a government department",
+      "terms": {
+        "si": {"preferred": "දෙපාර්තමේන්තු ප්‍රධානියා", "aliases": []},
+        "ta": {"preferred": "திணைக்களத் தலைவர்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-008",
+      "definition": "Public Service Commission",
+      "terms": {
+        "si": {"preferred": "රාජ්‍ය සේවා කොමිෂන් සභාව", "aliases": []},
+        "ta": {"preferred": "அரச சேவைகள் ஆணைக்குழு", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-009",
+      "definition": "Officer responsible for internal audit",
+      "terms": {
+        "si": {"preferred": "අභ්‍යන්තර විගණන නිලධාරී", "aliases": []},
+        "ta": {"preferred": "உள்ளக கணக்காய்வு அலுவலர்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-010",
+      "definition": "An allowance that has received official approval",
+      "terms": {
+        "si": {"preferred": "අනුමත දීමනාව", "aliases": []},
+        "ta": {"preferred": "அங்கீகரிக்கப்பட்ட கொடுப்பனவு", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-011",
+      "definition": "An official government gazette",
+      "terms": {
+        "si": {"preferred": "ගැසට් පත්‍රය", "aliases": ["ගැසට් පත්‍රයෙහි", "ගැසට් පත්‍රයේ", "ගැසට් පත්‍රයක"]},
+        "ta": {"preferred": "வர்த்தமானி", "aliases": ["வர்த்தமானப் பத்திரிகை"]}
+      }
+    },
+    {
+      "id": "gov-012",
+      "definition": "The Gazette of the Democratic Socialist Republic of Sri Lanka",
+      "terms": {
+        "si": {"preferred": "ශ්‍රී ලංකා ප්‍රජාතාන්ත්‍රික සමාජවාදී ජනරජයේ ගැසට් පත්‍රයේ", "aliases": []},
+        "ta": {"preferred": "இலங்கைச் சனநாயக சோசலிசக் குடியரசு வாராந்த வர்த்தமானப் பத்திரிகைகளின்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-013",
+      "definition": "Vacant positions advertised for appointment",
+      "terms": {
+        "si": {"preferred": "තනතුරු - ඇබෑර්තු", "aliases": []},
+        "ta": {"preferred": "பதவி-வெற்றிடங்கள்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-014",
+      "definition": "Official or public examinations",
+      "terms": {
+        "si": {"preferred": "විභාග", "aliases": []},
+        "ta": {"preferred": "பரீட்சைகள்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-015",
+      "definition": "Tenders invited through an official procurement process",
+      "terms": {
+        "si": {"preferred": "ටෙන්ඩර්", "aliases": []},
+        "ta": {"preferred": "கேள்விப்பத்திரங்கள்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-016",
+      "definition": "Sales conducted by auction",
+      "terms": {
+        "si": {"preferred": "වෙන්දේසි", "aliases": []},
+        "ta": {"preferred": "ஏல விற்பனைகள்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-017",
+      "definition": "Government departments",
+      "terms": {
+        "si": {"preferred": "දෙපාර්තමේන්තු", "aliases": []},
+        "ta": {"preferred": "அரசாங்க திணைக்களங்கள்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-018",
+      "definition": "Statutory or public corporations",
+      "terms": {
+        "si": {"preferred": "සංස්ථා", "aliases": []},
+        "ta": {"preferred": "கூட்டுத்தாபனங்கள்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-019",
+      "definition": "Government or statutory boards",
+      "terms": {
+        "si": {"preferred": "මණ්ඩල", "aliases": []},
+        "ta": {"preferred": "சபைகள்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-020",
+      "definition": "The Government Press",
+      "terms": {
+        "si": {"preferred": "රජයේ මුද්‍රණාලය", "aliases": ["රජයේ මුද්‍රණාලයට"]},
+        "ta": {"preferred": "அரசாங்க அச்சகம்", "aliases": ["அரசாங்க அச்சகத்துக்கு"]}
+      }
+    },
+    {
+      "id": "gov-021",
+      "definition": "The Electronic Transactions Act",
+      "terms": {
+        "si": {"preferred": "ඉලෙක්ට්‍රොනික ගනුදෙනු පනත", "aliases": []},
+        "ta": {"preferred": "இலத்திரனியல் கொடுக்கல் வாங்கல் சட்டம்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-022",
+      "definition": "A numbered section of legislation",
+      "terms": {
+        "si": {"preferred": "වගන්තිය", "aliases": []},
+        "ta": {"preferred": "பிரிவு", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-023",
+      "definition": "A formal proclamation or declaration",
+      "terms": {
+        "si": {"preferred": "ප්‍රකාශනය", "aliases": ["ප්‍රකාශනයක්"]},
+        "ta": {"preferred": "பிரகடனம்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-024",
+      "definition": "A rule made under legal authority",
+      "terms": {
+        "si": {"preferred": "රීතිය", "aliases": ["රීතියක්"]},
+        "ta": {"preferred": "விதி", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-025",
+      "definition": "A regulation or administrative order",
+      "terms": {
+        "si": {"preferred": "නියෝගය", "aliases": ["නියෝගයක්"]},
+        "ta": {"preferred": "ஒழுங்கு விதி", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-026",
+      "definition": "A formal command or prescribed order",
+      "terms": {
+        "si": {"preferred": "නියමය", "aliases": ["නියමයක්"]},
+        "ta": {"preferred": "கட்டளை", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-027",
+      "definition": "A by-law or subordinate rule",
+      "terms": {
+        "si": {"preferred": "අතුරු ව්‍යවස්ථාව", "aliases": ["අතුරු ව්‍යවස්ථාවක්"]},
+        "ta": {"preferred": "துணை விதி", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-028",
+      "definition": "An official notification",
+      "terms": {
+        "si": {"preferred": "නිවේදනය", "aliases": ["නිවේදනයක්"]},
+        "ta": {"preferred": "அறிவிப்பு", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-029",
+      "definition": "Publication in the Gazette",
+      "terms": {
+        "si": {"preferred": "ගැසට් පත්‍රයේ පළකළ", "aliases": []},
+        "ta": {"preferred": "வர்த்தமானியில் வெளியிடப்பட", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-030",
+      "definition": "An Act of law",
+      "terms": {
+        "si": {"preferred": "පනත", "aliases": ["පනතකින්"]},
+        "ta": {"preferred": "சட்டம்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-031",
+      "definition": "A legal enactment or legislation",
+      "terms": {
+        "si": {"preferred": "නීති ප්‍රඥප්තිය", "aliases": ["නීති ප්‍රඥප්තියකින්"]},
+        "ta": {"preferred": "சட்டவாக்கம்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-032",
+      "definition": "Making provision under legal authority",
+      "terms": {
+        "si": {"preferred": "විධිවිධාන සලස්වා", "aliases": []},
+        "ta": {"preferred": "ஏற்பாடு செய்யுமிடத்து", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-033",
+      "definition": "Publication in an electronic form of the Gazette",
+      "terms": {
+        "si": {"preferred": "ඉලෙක්ට්‍රොනික ස්වරූපයේ වන ගැසට් පත්‍රයක පළකරනු ලැබුවහොත්", "aliases": []},
+        "ta": {"preferred": "இலத்திரன் வடிவத்தில் வெளியிடப்படின்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-034",
+      "definition": "A statutory requirement deemed to have been satisfied",
+      "terms": {
+        "si": {"preferred": "විධිවිධානය සම්පූර්ණ කර ඇත්තාක් සේ සැලකිය යුතුය", "aliases": []},
+        "ta": {"preferred": "தேவைப்பாடு திருப்திப்படுத்தப்பட்டுள்ளதாகக் கருதப்படுதல் வேண்டும்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-035",
+      "definition": "The Government Printer",
+      "terms": {
+        "si": {"preferred": "රජයේ මුද්‍රණාලයාධිපති", "aliases": []},
+        "ta": {"preferred": "அரசாங்க அழுத்தகர்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-036",
+      "definition": "The Department of Government Printing",
+      "terms": {
+        "si": {"preferred": "රජයේ මුද්‍රණ දෙපාර්තමේන්තුව", "aliases": ["රජයේ මුද්‍රණ දෙපාර්තමේන්තුවේ"]},
+        "ta": {"preferred": "அரசாங்க அச்சுத் திணைக்களம்", "aliases": []}
+      }
+    },
+    {
+      "id": "gov-037",
+      "definition": "A website from which a document can be downloaded",
+      "terms": {
+        "si": {"preferred": "වෙබ් අඩවිය", "aliases": ["වෙබ් අඩවියෙන්"]},
+        "ta": {"preferred": "இணையத்தளம்", "aliases": ["இணையத்தளத்திலிருந்து"]}
+      }
+    }
+  ]
+}

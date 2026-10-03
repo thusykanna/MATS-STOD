@@ -49,7 +49,7 @@ class CometMetric:
     ) -> list[float]:
         data = [
             {"src": s, "mt": h, "ref": r}
-            for s, h, r in zip(sources, hypotheses, references)
+            for s, h, r in zip(sources, hypotheses, references, strict=True)
         ]
         output = self._load().predict(
             data, batch_size=self.batch_size, gpus=self.gpus, progress_bar=False
@@ -80,7 +80,7 @@ def score_documents(
     units_h: list[str] = []
     units_r: list[str] = []
     owner: list[int] = []
-    for i, (s, h, r) in enumerate(zip(sources, hypotheses, references)):
+    for i, (s, h, r) in enumerate(zip(sources, hypotheses, references, strict=True)):
         us, uh, ur = paragraph_units(s, h, r)
         units_s += us
         units_h += uh
@@ -89,7 +89,7 @@ def score_documents(
 
     scores = metric.score(units_s, units_h, units_r)
     per_doc: list[list[float]] = [[] for _ in sources]
-    for i, sc in zip(owner, scores):
+    for i, sc in zip(owner, scores, strict=True):
         per_doc[i].append(sc)
     return [round(mean(x), 4) for x in per_doc]
 
@@ -104,7 +104,7 @@ def add_comet(
 ) -> None:
     """Store COMET in DocScore.extra and CorpusScore.extra (key: "comet")."""
     scores = score_documents(metric, sources, hypotheses, references)
-    for doc, sc in zip(doc_scores, scores):
+    for doc, sc in zip(doc_scores, scores, strict=True):
         doc.extra["comet"] = sc
     corpus.extra["comet"] = round(mean(scores), 4)
 

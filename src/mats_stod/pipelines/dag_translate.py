@@ -1,9 +1,10 @@
-"""GRAFT memory baseline and explicit raw-context comparison.
+"""Terminology-aware GRAFT memory baseline and raw-context comparison.
 
-A document is segmented and connected through graph_pipeline. The default
-executes alternating translation and local-memory extraction stages in reading
-order, merging only direct-parent memories. The retained raw-context condition
-uses an all-parent barrier per segment and depth-selected raw passages.
+A document is segmented and connected through graph_pipeline. The default first
+resolves terminology for every segment, then executes alternating translation
+and local-memory extraction stages in reading order, merging only direct-parent
+memories. The retained raw-context condition uses an all-parent barrier per
+segment and depth-selected raw passages.
 
 LangGraph is used here, and nowhere else in the pipeline, per DECISIONS.md
 D25: this is the one stage with real per-node state and a use for
@@ -32,6 +33,7 @@ from ..io.runs import RunDir
 from ..llm.client import CachedLLM
 from ..prompts.registry import prompt_text
 from ..schemas import DiscourseGraph, Segment, TranslationRecord
+from ..terminology import GlossaryStore, TerminologyAgent, TerminologyRecord
 from ..translation.context import build_dag_context
 from ..translation.memory import MemoryAgent, MemoryRecord, merge_memories
 from ..translation.translator import Translator
@@ -54,6 +56,7 @@ class _TranslationState(TypedDict):
     records: Annotated[dict[str, dict[str, Any]], operator.or_]
     memories: Annotated[dict[str, dict[str, Any]], operator.or_]
     memory_contexts: Annotated[dict[str, dict[str, Any]], operator.or_]
+    terminology: Annotated[dict[str, dict[str, Any]], operator.or_]
 
 
 @dataclass
@@ -66,7 +69,7 @@ class DocumentTranslation:
     segments: list[Segment]
     records: list[TranslationRecord]
     output_text: str
-    reference_text: str
+    reference_text: str | None
     source_text: str
     #: The discourse graph translation order and context were drawn from,
     #: kept so it can be exported alongside the translation that used it.
@@ -75,6 +78,8 @@ class DocumentTranslation:
     stats: dict[str, Any] = field(default_factory=dict)
     memories: list[MemoryRecord] = field(default_factory=list)
     memory_contexts: dict[str, Any] = field(default_factory=dict)
+    terminology: list[TerminologyRecord] = field(default_factory=list)
+    glossary_snapshot: dict[str, Any] | None = None
 
 
 def _make_node(
@@ -124,19 +129,45 @@ def _build_graph_app(
     return builder
 
 
-def _build_memory_app(graph: DiscourseGraph, settings: Settings, llm: CachedLLM):
-    """Reading-order translate → memory loop; each stage checkpoints separately."""
+def _build_memory_app(
+    graph: DiscourseGraph,
+    settings: Settings,
+    llm: CachedLLM,
+    glossary: GlossaryStore | None = None,
+):
+    """Terminology prepass, then the reading-order translate → memory loop."""
     builder = StateGraph(_TranslationState)
     segments = {s.seg_id: s for s in graph.segments}
     translator = Translator(settings, llm)
     agent = MemoryAgent(settings, llm)
+    terminology_agent: TerminologyAgent | None = None
+    if settings.terminology.enabled:
+        glossary = glossary or GlossaryStore.from_settings(settings)
+        glossary.validate_direction(settings.langs.source, settings.langs.target)
+        terminology_agent = TerminologyAgent(settings, llm, glossary)
+
+    def terminology_node(sid):
+        def run(state):
+            assert terminology_agent is not None
+            record = terminology_agent.extract(segments[sid])
+            return {"terminology": {sid: record.model_dump(mode="json")}}
+
+        return run
 
     def translation_node(sid):
         def run(state):
             memories = {k: MemoryRecord.model_validate(v)
                         for k, v in state["memories"].items()}
             context, audit = merge_memories(graph.parents(sid), segments, memories)
-            record = translator.translate_segment(segments[sid], context, "graft_baseline")
+            terminology = None
+            if settings.terminology.enabled:
+                raw = state["terminology"].get(sid)
+                if raw is None:
+                    raise RuntimeError(f"Cannot translate {sid}: terminology prepass is incomplete")
+                terminology = TerminologyRecord.model_validate(raw)
+            record = translator.translate_segment(
+                segments[sid], context, "graft_baseline", terminology
+            )
             return {"records": {sid: record.model_dump(mode="json")},
                     "memory_contexts": {sid: audit}}
         return run
@@ -148,8 +179,20 @@ def _build_memory_app(graph: DiscourseGraph, settings: Settings, llm: CachedLLM)
             return {"memories": {sid: memory.model_dump(mode="json")}}
         return run
 
-    previous = START
-    for segment in sorted(graph.segments, key=lambda s: s.order):
+    ordered = sorted(graph.segments, key=lambda s: s.order)
+    previous: str | list[str] = START
+    if terminology_agent is not None:
+        terminology_nodes: list[str] = []
+        for segment in ordered:
+            name = f"terminology_{segment.order}"
+            builder.add_node(name, terminology_node(segment.seg_id))
+            builder.add_edge(START, name)
+            terminology_nodes.append(name)
+        # A list-valued edge is an all-node barrier: no translation starts
+        # until the terminology record for every segment has checkpointed.
+        previous = terminology_nodes
+
+    for segment in ordered:
         sid = segment.seg_id
         trans, mem = f"translate_{segment.order}", f"memory_{segment.order}"
         builder.add_node(trans, translation_node(sid))
@@ -193,16 +236,27 @@ def translate_document(
     checkpointer: BaseCheckpointSaver,
 ) -> DocumentTranslation:
     """Build the graph and execute the selected translation condition."""
+    terminology_active = (
+        settings.translation.condition == "graft_baseline" and settings.terminology.enabled
+    )
+    glossary = GlossaryStore.from_settings(settings) if terminology_active else None
+    if glossary is not None:
+        glossary.validate_direction(settings.langs.source, settings.langs.target)
+    prompt_versions = [
+        settings.segmentation.prompt_version,
+        settings.graph.prompt_version,
+        settings.translation.prompt_version,
+        settings.memory.prompt_version,
+    ]
+    if terminology_active:
+        prompt_versions.append(settings.terminology.prompt_version)
     config = {"configurable": {"thread_id": f"{pair.direction}:{pair.doc_id}"}}
     fingerprint = _fingerprint({
-        "execution_version": 3,
+        "execution_version": 4,
         "source": pair.source_text,
         "settings": settings.model_dump(mode="json"),
-        "prompts": {v: prompt_text(v) for v in (
-            settings.segmentation.prompt_version, settings.graph.prompt_version,
-            settings.translation.prompt_version,
-            settings.memory.prompt_version,
-        )},
+        "prompts": {v: prompt_text(v) for v in prompt_versions},
+        "glossary_hash": glossary.content_hash if glossary is not None else None,
         "provider": llm.provider.provider,
         "model": llm.model,
     })
@@ -236,28 +290,36 @@ def translate_document(
             source_text=pair.source_text,
             graph=doc.graph,
             graph_stats=doc.stats,
-            stats={"n_flagged_segments": 0},
+            stats={
+                "n_flagged_segments": 0,
+                "n_terminology_candidates": 0,
+                "n_terminology_matches": 0,
+                "n_unmatched_terminology_candidates": 0,
+                "glossary_hit_rate": 0.0,
+            },
+            glossary_snapshot=glossary.snapshot() if glossary is not None else None,
         )
 
     segments_by_id = {s.seg_id: s for s in ordered}
     translator = Translator(settings, llm)
     if settings.translation.condition == "graft_baseline":
-        builder = _build_memory_app(doc.graph, settings, llm)
+        builder = _build_memory_app(doc.graph, settings, llm, glossary)
     else:
         builder = _build_graph_app(doc.graph, segments_by_id, settings, translator)
     app = builder.compile(checkpointer=checkpointer)
 
     config = {
         "configurable": {"thread_id": f"{pair.direction}:{pair.doc_id}"},
-        # Baseline uses two stages per segment: translation then extraction.
-        "recursion_limit": 2 * len(ordered) + 10,
+        # Baseline uses one parallel terminology superstep, then two stages per
+        # segment: translation and memory extraction.
+        "recursion_limit": 2 * len(ordered) + 12,
     }
     # Invoking with a fresh input always (re)starts the thread from scratch,
     # discarding whatever the checkpointer already has for it. Resuming means
     # invoking with `None`, which tells LangGraph to continue the existing
     # thread's state instead — the entire reason a checkpointer was worth
     # adding (D25).
-    initial = {"records": {}, "memories": {}, "memory_contexts": {},
+    initial = {"records": {}, "memories": {}, "memory_contexts": {}, "terminology": {},
                "fingerprint": fingerprint, "graph_fingerprint": graph_fingerprint}
     final_state = app.invoke(None if checkpoint else initial, config=config)
 
@@ -268,7 +330,22 @@ def translate_document(
     records = [records_by_id[s.seg_id] for s in ordered]
     output = _reassemble(pair.source_text, ordered, records)
 
-    stats = {"n_flagged_segments": sum(1 for r in records if r.flags)}
+    terminology_records = [
+        TerminologyRecord.model_validate(final_state["terminology"][s.seg_id])
+        for s in ordered
+        if s.seg_id in final_state.get("terminology", {})
+    ]
+    n_candidates = sum(len(record.candidates) for record in terminology_records)
+    n_matches = sum(len(record.matches) for record in terminology_records)
+    n_unmatched = sum(len(record.unmatched_candidates) for record in terminology_records)
+    lookup_total = n_matches + n_unmatched
+    stats = {
+        "n_flagged_segments": sum(1 for r in records if r.flags),
+        "n_terminology_candidates": n_candidates,
+        "n_terminology_matches": n_matches,
+        "n_unmatched_terminology_candidates": n_unmatched,
+        "glossary_hit_rate": round(n_matches / lookup_total, 4) if lookup_total else 0.0,
+    }
 
     return DocumentTranslation(
         doc_id=pair.doc_id,
@@ -285,6 +362,8 @@ def translate_document(
         memories=[MemoryRecord.model_validate(final_state["memories"][s.seg_id])
                   for s in ordered if s.seg_id in final_state.get("memories", {})],
         memory_contexts=final_state.get("memory_contexts", {}),
+        terminology=terminology_records,
+        glossary_snapshot=glossary.snapshot() if glossary is not None else None,
     )
 
 
@@ -297,6 +376,15 @@ def write_document_artifacts(run: RunDir, result: DocumentTranslation) -> None:
     if result.strategy == "graft_baseline":
         run.write_json(f"documents/{result.doc_id}/memories.json", result.memories)
         run.write_json(f"documents/{result.doc_id}/memory_contexts.json", result.memory_contexts)
+    if result.terminology:
+        run.write_json(f"documents/{result.doc_id}/terminology.json", result.terminology)
+    if result.glossary_snapshot is not None:
+        snapshot_path = Path(run.path) / "glossary_snapshot.json"
+        if snapshot_path.exists():
+            if run.read_json("glossary_snapshot.json") != result.glossary_snapshot:
+                raise RuntimeError("run glossary snapshot differs from this document")
+        else:
+            run.write_json("glossary_snapshot.json", result.glossary_snapshot)
     run.write_text(f"documents/{result.doc_id}/translation.txt", result.output_text + "\n")
     run.write_json(
         f"documents/{result.doc_id}/stats.json",

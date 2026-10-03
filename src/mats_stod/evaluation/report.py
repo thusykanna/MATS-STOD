@@ -101,6 +101,35 @@ def render_report(results: dict[str, Any], settings: Settings) -> str:
         ]
         lines.append(_table(headers + (["COMET"] if has_comet else []), rows))
 
+    input_summary = results.get("input_summary")
+    if input_summary:
+        if corpus is None:
+            lines.append("\nCorpus evaluation: unavailable — no reference files\n")
+        lines.append("\n## Translation inputs\n")
+        lines.append(
+            _table(
+                ["measure", "value"],
+                [
+                    ["input directory", input_summary["input_directory"]],
+                    ["discovered folders", input_summary["discovered_folders"]],
+                    ["valid folders", input_summary["valid_folders"]],
+                    ["selected folders", input_summary["selected_folders"]],
+                    ["translated documents", input_summary["translated_documents"]],
+                    ["evaluated documents", input_summary["evaluated_documents"]],
+                    ["source-only documents", input_summary["source_only_documents"]],
+                ],
+            )
+        )
+        skipped = input_summary.get("skipped_folders") or []
+        if skipped:
+            lines.append("\nSkipped folders:\n")
+            lines.append(
+                _table(
+                    ["folder", "reason"],
+                    [[item["doc_id"], item["reason"]] for item in skipped],
+                )
+            )
+
     seg_stats = results.get("segmentation_stats")
     if seg_stats:
         lines.append("\n## Segmentation\n")
