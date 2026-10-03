@@ -14,7 +14,9 @@ data/splits.json
 data/parallel/
 data/gold/
 !data/gold/.gitkeep
+!data/gold/terminology/
 !data/gold/segmentation/.gitkeep
 !data/gold/edges/.gitkeep
+!data/gold/terminology/.gitkeep
 .cache/
 experiments.xlsx

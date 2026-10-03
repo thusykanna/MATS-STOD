@@ -61,6 +61,7 @@ def graph(n=4, dense=False):
 @pytest.fixture
 def baseline(settings):
     settings.translation.condition = "graft_baseline"
+    settings.terminology.enabled = False
     settings.segmentation.max_discourse_chars = None
     settings.llm.use_cache = False
     return settings
@@ -73,6 +74,7 @@ def test_real_defaults_are_unpruned_memory_baseline():
     assert settings.graph.max_pair_distance is None
     assert settings.graph.transitive_reduction is False
     assert settings.segmentation.max_discourse_chars is None
+    assert settings.terminology.enabled is True
 
 
 @pytest.mark.parametrize("dense", [False, True])

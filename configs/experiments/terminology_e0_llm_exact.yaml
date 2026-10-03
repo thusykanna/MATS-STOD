@@ -1,0 +1,6 @@
+run_name: terminology_e0_llm_exact
+translation:
+  condition: graft_baseline
+terminology:
+  enabled: true
+  method: llm_exact

@@ -1,0 +1,4 @@
+# Ablation of the default GRAFT baseline's terminology prepass.
+run_name: baseline_no_terminology
+terminology:
+  enabled: false

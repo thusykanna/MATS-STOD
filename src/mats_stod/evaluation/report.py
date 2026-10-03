@@ -101,6 +101,78 @@ def render_report(results: dict[str, Any], settings: Settings) -> str:
         ]
         lines.append(_table(headers + (["COMET"] if has_comet else []), rows))
 
+    input_summary = results.get("input_summary")
+    if input_summary:
+        if corpus is None:
+            lines.append("\nCorpus evaluation: unavailable — no reference files\n")
+        lines.append("\n## Translation inputs\n")
+        lines.append(
+            _table(
+                ["measure", "value"],
+                [
+                    ["input directory", input_summary["input_directory"]],
+                    ["discovered folders", input_summary["discovered_folders"]],
+                    ["valid folders", input_summary["valid_folders"]],
+                    ["selected folders", input_summary["selected_folders"]],
+                    ["translated documents", input_summary["translated_documents"]],
+                    ["evaluated documents", input_summary["evaluated_documents"]],
+                    ["source-only documents", input_summary["source_only_documents"]],
+                ],
+            )
+        )
+        skipped = input_summary.get("skipped_folders") or []
+        if skipped:
+            lines.append("\nSkipped folders:\n")
+            lines.append(
+                _table(
+                    ["folder", "reason"],
+                    [[item["doc_id"], item["reason"]] for item in skipped],
+                )
+            )
+
+    term_eval = results.get("terminology_evaluation")
+    if term_eval:
+        lines.append("\n## Terminology evaluation\n")
+        identification = term_eval["identification"]
+        resolution = term_eval["resolution"]
+        recovery = term_eval["recovery"]
+        realization = term_eval["target_realization"]
+        lines.append(_table(
+            ["measure", "value"],
+            [
+                ["method", results.get("terminology_method")],
+                ["gold documents", term_eval["documents"]],
+                ["identification precision", identification["precision"]],
+                ["identification recall", identification["recall"]],
+                ["identification F1", identification["f1"]],
+                ["resolution precision", resolution["precision"]],
+                ["resolution recall", resolution["recall"]],
+                ["false glossary mappings", resolution["false_mappings"]],
+                ["recovery recall", recovery["recall"]],
+                ["target realization accuracy", realization["accuracy"]],
+            ],
+        ))
+
+    term_ops = results.get("terminology_operational")
+    if term_ops:
+        lines.append("\n## Terminology operations\n")
+        rows = [
+            ["method", results.get("terminology_method")],
+            ["candidates", term_ops["candidates"]],
+            ["approved matches", term_ops["matches"]],
+            ["unmatched candidates", term_ops["unmatched"]],
+            ["latency s", term_ops["latency_s"]],
+        ]
+        rows.extend(
+            [f"resolved: {method}", count]
+            for method, count in term_ops["resolution_methods"].items()
+        )
+        rows.extend(
+            [f"source form: {kind}", count]
+            for kind, count in term_ops.get("source_term_kinds", {}).items()
+        )
+        lines.append(_table(["measure", "value"], rows))
+
     seg_stats = results.get("segmentation_stats")
     if seg_stats:
         lines.append("\n## Segmentation\n")

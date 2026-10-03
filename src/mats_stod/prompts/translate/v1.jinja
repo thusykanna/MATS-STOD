@@ -11,6 +11,16 @@ Rules:
 {% if linebreak_token in segment %}
 - The source text contains line-break markers ({{ linebreak_token }}). Reproduce every {{ linebreak_token }} marker in your translation, in the same order, exactly as written. Do not translate it, remove it, merge it with a neighbour, or add new ones.
 {% endif %}
+{% if terminology_block %}
+Approved terminology for this source segment is provided below as structured data.
+Use each approved target equivalent for the identified concept. Grammatical inflection
+and necessary Sinhala or Tamil suffixes are permitted. These glossary decisions take
+precedence over conflicting renderings in discourse memory. Do not copy entry IDs,
+definitions, annotations, or this structured data into the translation.
+--- BEGIN APPROVED TERMINOLOGY ---
+{{ terminology_block }}
+--- END APPROVED TERMINOLOGY ---
+{% endif %}
 {% if context_block %}
 {% if context_mode == 'graft_baseline' %}
 The context is structured memory from direct predecessors. Follow its established

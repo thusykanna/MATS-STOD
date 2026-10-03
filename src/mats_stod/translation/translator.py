@@ -8,6 +8,7 @@ records what happened rather than pretending it did not.
 
 from __future__ import annotations
 
+import json
 import time
 
 from ..config import Settings
@@ -15,6 +16,7 @@ from ..llm.base import LLMError, Message, ParseError, parse_json_response
 from ..llm.client import CachedLLM
 from ..prompts.registry import render
 from ..schemas import Segment, TranslationRecord
+from ..terminology.models import TerminologyRecord
 from . import protect
 from .context import ContextBlock
 from .linebreaks import LINEBREAK_TOKEN, mask_linebreaks, unmask_linebreaks
@@ -36,7 +38,13 @@ class Translator:
         self.settings = settings
         self.llm = llm
 
-    def build_prompt(self, source_text: str, context: ContextBlock) -> str:
+    def build_prompt(
+        self,
+        source_text: str,
+        context: ContextBlock,
+        terminology: TerminologyRecord | None = None,
+    ) -> str:
+        terminology_payload = terminology.prompt_payload() if terminology is not None else []
         return render(
             self.settings.translation.prompt_version,
             source_lang=self.settings.langs.source_name,
@@ -46,6 +54,11 @@ class Translator:
             segment=source_text,
             linebreak_token=LINEBREAK_TOKEN,
             context_mode=self.settings.translation.condition,
+            terminology_block=(
+                json.dumps(terminology_payload, ensure_ascii=False, sort_keys=True)
+                if terminology_payload
+                else ""
+            ),
         )
 
     def translate_segment(
@@ -53,13 +66,14 @@ class Translator:
         segment: Segment,
         context: ContextBlock,
         strategy_name: str,
+        terminology: TerminologyRecord | None = None,
     ) -> TranslationRecord:
         # Newlines inside the segment (paragraph breaks, letter-header lines,
         # list rows) survive as literal characters up to this point, but a
         # model asked to translate and return JSON has no reason to keep them
         # in place. Masking them as an opaque token round-trips them intact
         # instead of relying on the model's judgement.
-        prompt = self.build_prompt(mask_linebreaks(segment.text), context)
+        prompt = self.build_prompt(mask_linebreaks(segment.text), context, terminology)
         started = time.perf_counter()
         text, tokens_in, tokens_out, cached, parse_flags = self._call_with_retry(prompt)
         elapsed = time.perf_counter() - started
@@ -89,6 +103,14 @@ class Translator:
                 "context_estimated_tokens_before": context.estimated_tokens_before,
                 "context_estimated_tokens_after": context.estimated_tokens_after,
                 "context_empty_reason": context.empty_reason,
+                "terminology_entry_ids": (
+                    list(dict.fromkeys(match.entry_id for match in terminology.matches))
+                    if terminology is not None
+                    else []
+                ),
+                "terminology_pairs": (
+                    terminology.prompt_payload() if terminology is not None else []
+                ),
                 "prompt": prompt,
             },
         )

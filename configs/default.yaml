@@ -78,6 +78,17 @@ memory:
   retry_on_parse_failure: 1
   request_token_limit: 32000 # estimated complete input + reserved output; fail, never truncate
 
+terminology:
+  enabled: true
+  method: hybrid
+  glossary_path: data/glossaries/dummy_government.si-ta.json
+  prompt_version: terminology_v1
+  max_output_tokens: 1024
+  thinking_budget: 0
+  retry_on_parse_failure: 1
+  request_token_limit: 32000
+  enforcement: preferred_with_inflection
+
 evaluation:
   primary_metric: chrf++
   bleu_tokenize: none
@@ -86,7 +97,7 @@ evaluation:
   chrf_beta: 2
   bootstrap_resamples: 1000
   bootstrap_seed: 12345
-  comet_enabled: false
+  comet_enabled: true
   comet_model: Unbabel/wmt22-comet-da
   comet_batch_size: 8
   comet_gpus: 0
@@ -96,5 +107,6 @@ paths:
   samples: data/samples
   gold_segmentation: data/gold/segmentation
   gold_edges: data/gold/edges
+  gold_terminology: data/gold/terminology
   runs: runs
   split_file: data/splits.json

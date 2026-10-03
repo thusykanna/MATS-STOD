@@ -107,14 +107,14 @@ If you already have this checkout, open a terminal in its root folder instead.
 **All platforms — choose one installation:**
 
 ```text
-uv sync --dev --extra gemini
+uv sync --dev --extra gemini --extra comet
 ```
 
-This installs the application, test tools and Google SDK for real translations.
+This installs the application, test tools, Google SDK and COMET for real translations.
 For an offline-only setup without the Google SDK, use `uv sync --dev` instead.
 
-When using Gemini, **keep `--extra gemini` on subsequent `uv sync` commands**;
-otherwise uv removes the optional Google SDK.
+For referenced translations, keep both `--extra gemini` and `--extra comet` on
+subsequent `uv sync` commands; otherwise uv removes those optional dependencies.
 
 Run the tests:
 
@@ -148,7 +148,7 @@ Outputs land in `runs/<run_id>/`:
 | `documents/<doc_id>/translation.txt` | Translated text |
 | `log.jsonl` | Event log |
 
-The three sample document pairs are synthetic and must not be reported as
+The four sample document pairs are synthetic and must not be reported as
 research results.
 
 ### 5. Configure Vertex AI (optional)
@@ -156,7 +156,7 @@ research results.
 If you chose the offline-only installation, first run:
 
 ```text
-uv sync --dev --extra gemini
+uv sync --dev --extra gemini --extra comet
 ```
 
 Create your local configuration file using the command for your shell.
@@ -268,17 +268,37 @@ uv run mats-stod check-llm --send
 A successful reply confirms that Vertex AI credentials work and the configured
 model is reachable.
 
-Start with one sample document:
+Run the complete pipeline over every usable folder in `data/parallel`:
 
 ```text
-uv run mats-stod translate --data data/samples --portion all --max-docs 1
+uv run mats-stod translate
 ```
 
-The default direction is Sinhala to Tamil. To reverse it:
+The command asks for the direction using a numbered menu:
+
+```text
+1. Sinhala → Tamil
+2. Tamil → Sinhala
+```
+
+Limit the run to the first usable folder with `--max-docs 1`. Explicit flags
+bypass the menu for scripts and repeatable experiments:
 
 ```text
 uv run mats-stod translate --data data/samples --portion all --source ta --target si --max-docs 1
 ```
+
+Each document folder needs a file for the selected source language, such as
+`notice.si` or `notice.ta`. A target-language file in the same folder is
+optional: when present it is used to report chrF++ and BLEU; when absent the
+translation is still written and evaluation is marked unavailable. Output
+paths are printed after every document.
+
+Translation defaults to `--portion all`. To select `--portion dev` or
+`--portion test`, first create the configured split file with `mats-stod make-split`.
+A missing split file or unsupported portion is an error; translation does not
+silently fall back to the full corpus. In mixed batches, reference-based metrics
+(including optional COMET) score only documents with target references.
 
 Open the files in `runs/<run_id>/` to inspect the results. If Sinhala or Tamil
 appears as boxes in your terminal, open the UTF-8 output in an editor with a
@@ -324,6 +344,7 @@ to verify access to the configured model and region.
 |---|---|
 | `translate` | Translate with GRAFT memory (default) or the configured raw-context condition |
 | `compare` | Run the DAG-context condition, write a results table |
+| `compare-terminology RUN...` | Validate and compare completed terminology experiment runs |
 | `segment` | Segment with GRAFT and score against gold |
 | `build-graph` | Build the discourse graph with GRAFT, score against gold |
 | `eval --hyp DIR --ref DIR` | Score two directories of `.txt` files |
@@ -348,9 +369,47 @@ uv run mats-stod translate --experiment configs/experiments/raw_context.yaml
 ## GRAFT memory baseline
 
 `translate` and `compare` default to `graft_baseline`. After segmentation and
-graph construction, each discourse is translated in reading order, then its
+graph construction, a terminology prepass completes for every discourse before
+translation starts. Each discourse is then translated in reading order and its
 local memory is extracted. The next discourse uses memories from its direct
-graph predecessors. No human reference translation enters either prompt.
+graph predecessors. Runtime reference text is never read by the translation
+pipeline.
+
+The terminology prepass is enabled by default for `graft_baseline`. Its configurable
+methods are `llm_exact` (E0), `python_scan` (E1), `llm_lookup_form` (E2), and
+`hybrid` (E3, the default). LLM methods copy a source surface and propose a
+source-language lookup form; Python remains authoritative by accepting only forms in
+`data/glossaries/dummy_government.si-ta.json`. E0 ignores the proposed lookup form,
+E1 makes no terminology LLM call, E2 verifies it only after surface lookup fails, and
+E3 combines E2 with the literal glossary scan. Only approved matches enter the
+translation prompt. No stemming, lemmatization or morphology generation is performed.
+Target inflection is permitted during translation, and glossary terms take precedence
+over conflicting GRAFT memory.
+
+Select a method with an experiment overlay:
+
+```bash
+uv run mats-stod translate --experiment configs/experiments/terminology_e0_llm_exact.yaml --source si --target ta --portion test --run-id term-e0-si-ta
+uv run mats-stod translate --experiment configs/experiments/terminology_e1_python_scan.yaml --source si --target ta --portion test --run-id term-e1-si-ta
+uv run mats-stod translate --experiment configs/experiments/terminology_e2_llm_lookup_form.yaml --source si --target ta --portion test --run-id term-e2-si-ta
+uv run mats-stod translate --experiment configs/experiments/terminology_e3_hybrid.yaml --source si --target ta --portion test --run-id term-e3-si-ta
+```
+
+If independently annotated files exist under `data/gold/terminology/`, runs also
+report terminology identification, resolution, recovery and target-realization
+metrics. Compare completed compatible runs without rerunning them:
+
+```bash
+uv run mats-stod compare-terminology runs/term-e0-si-ta runs/term-e1-si-ta runs/term-e2-si-ta runs/term-e3-si-ta --out terminology-comparison-si-ta
+```
+
+The bundled glossary is non-authoritative demonstration data. Version
+`dummy-government-v2-gazette` has 37 entries and includes pairs curated from
+the `testing_01` parallel reference specifically for workflow verification.
+Testing it on that same document is therefore reference leakage and must not be
+reported as an unbiased quality result. Use
+`configs/experiments/baseline_no_terminology.yaml` for the baseline ablation;
+the two raw-context overlays disable the terminology prepass.
 
 The Memory Agent returns five validated components: noun–pronoun mappings,
 source/target entity mappings, phrase mappings, discourse connective mappings,
@@ -386,12 +445,12 @@ or publish an aggregate over an incomplete batch. Earlier artifacts may remain.
 Raise the ceiling explicitly to continue the baseline; a distance bound is an
 ablation and requires selecting the raw-context condition.
 
-LangGraph checkpoints translation and memory extraction as separate stages in
+LangGraph checkpoints terminology, translation and memory extraction as separate stages in
 `checkpoints.sqlite`. If memory extraction fails, the completed translation is
-reused on resume. Schema-invalid translation/memory responses are evicted from the cache,
-so they cannot permanently block retries. Reuse the same `--run-id` to
+reused on resume. Schema-invalid terminology, translation, or memory responses
+are evicted from the cache, so they cannot permanently block retries. Reuse the same `--run-id` to
 resume unchanged work. Fingerprints validate source text, settings, provider,
-model, prompt contents, execution version, and the rebuilt graph. Legacy or
+model, prompt contents, glossary SHA-256, execution version, and the rebuilt graph. Legacy or
 incompatible checkpoints require a **fresh run ID**. Changed run settings are
 rejected before overwriting saved configuration or provenance. Graph rebuilding
 still occurs on resume; its model requests can use the cache.
@@ -402,9 +461,11 @@ or SDK retries are not counted separately. A translation parse retry is a new
 logical request. Counts describe this invocation, not cumulative checkpoint
 history. `calls` in JSON remains the completed-response count for compatibility.
 
-Artifacts include `memories.json`, `memory_contexts.json`, `records.json`, and
-the graph. They preserve local memories, the merged context, conflicts, prompts,
-and provenance. Call reports separate memory extraction from translation.
+Artifacts include `terminology.json`, optional `terminology_evaluation.json`, the run-level `glossary_snapshot.json`,
+`memories.json`, `memory_contexts.json`, `records.json`, and the graph. They preserve
+term candidates, approved pairs, unmatched candidates, local memories, merged
+context, conflicts, prompts, and provenance. Call reports distinguish terminology
+extraction, memory extraction, and translation.
 
 **Migration:** use a fresh run ID; prior raw-context checkpoints are incompatible.
 See [CODEBASE_GUIDE.md](CODEBASE_GUIDE.md) for the code map and
@@ -480,16 +541,22 @@ in Sinhala and dropping it from ශ්‍රී produces a different word.
 - **BLEU is close to meaningless on short segments.** It needs 4-grams, and
   sacrebleu has no Sinhala or Tamil tokeniser. chrF++ is the primary metric for
   this reason.
-- **No real corpus yet.** `data/samples/` holds three hand-written synthetic
+- **No real corpus yet.** `data/samples/` holds four hand-written synthetic
   documents, committed so tests and demos run. They are not government text and
   must never be reported as results.
-- **No learned metric.** A `LearnedMetric` protocol exists; COMET is not
-  installed, because it needs a model this machine cannot host and is not
-  validated for Sinhala–Tamil.
+- **COMET requires an optional model download.** It is enabled for referenced
+  translation runs and requires the `comet` dependency extra. Its score supplements
+  chrF++ and BLEU; it does not replace terminology-specific evaluation.
 - **Memory extraction can be wrong.** Schema validation checks structure, not
   semantic correctness. Memory and earlier-value conflict resolution still need
   evaluation on Sinhala–Tamil documents. Automatic correction and document review
   are not implemented.
+- **The bundled glossary is only a workflow fixture.** Its 37 pairs include terms
+  curated from the `testing_01` reference and are neither independently reviewed nor
+  suitable for an unbiased measurement on that document. Lookup supports exact
+  preferred/alias forms, literal scanning, and glossary-verified LLM lookup-form
+  proposals. Fuzzy search, stemming, lemmatization and morphology generation are not
+  implemented.
 - **The GRAFT edge agent is quadratic.** M3 will need the per-document call
   ceiling (`graph.max_pairwise_calls_per_doc`) set against real document
   lengths before it runs on the real corpus.
@@ -498,8 +565,9 @@ in Sinhala and dropping it from ශ්‍රී produces a different word.
 
 ```
 configs/            default.yaml plus one overlay per condition and direction
-data/samples/       three synthetic si/ta pairs, committed, used by tests
-data/parallel/      the real corpus (not committed)
+data/samples/       four synthetic si/ta pairs, committed, used by tests
+data/glossaries/    local bilingual glossary fixtures
+data/parallel/      default translation inputs; one folder per document
 data/gold/          hand-annotated segmentation and edges (not committed)
 src/mats_stod/
   schemas.py        Document, Segment, Edge, DiscourseGraph, TranslationRecord
@@ -507,6 +575,7 @@ src/mats_stod/
   io/               loaders, NFC normalisation, run directories, fixed split
   llm/              LLMClient, Gemini provider, cache, call ledger, FakeLLM
   prompts/          versioned .jinja templates, never inline strings
+  terminology/      candidate extraction, glossary lookup and term records
   parsing/          LayoutParser interface and PlainTextParser
   segmentation/     sentence splitter, GRAFT discourse segmenter
   graph/            structural + GRAFT pairwise edges, assembly, export

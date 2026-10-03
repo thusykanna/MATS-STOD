@@ -1,0 +1,6 @@
+run_name: terminology_e2_llm_lookup_form
+translation:
+  condition: graft_baseline
+terminology:
+  enabled: true
+  method: llm_lookup_form

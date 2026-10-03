@@ -43,8 +43,10 @@ def settings(tmp_path: Path) -> Settings:
     s.paths.runs = str(tmp_path / "runs")
     s.paths.gold_segmentation = str(tmp_path / "gold" / "segmentation")
     s.paths.gold_edges = str(tmp_path / "gold" / "edges")
+    s.paths.gold_terminology = str(tmp_path / "gold" / "terminology")
     s.paths.split_file = str(tmp_path / "splits.json")
     s.llm.cache_path = str(tmp_path / "cache.sqlite")
+    s.evaluation.comet_enabled = False
     return s
 
 
